@@ -1,0 +1,19 @@
+{
+  "name": "ifinance-app",
+  "private": true,
+  "version": "1.0.0",
+  "description": "iFinance Books — React frontend + Express/PostgreSQL backend",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "npm --prefix backend run dev",
+    "build": "npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview",
+    "install:all": "npm --prefix frontend install && npm --prefix backend install",
+    "db:setup": "npm --prefix backend run db:setup",
+    "db:seed": "npm --prefix backend run db:seed",
+    "db:phase2": "npm --prefix backend run db:phase2",
+    "db:phase3": "npm --prefix backend run db:phase3",
+    "db:p0": "npm --prefix backend run db:p0"
+  }
+}
