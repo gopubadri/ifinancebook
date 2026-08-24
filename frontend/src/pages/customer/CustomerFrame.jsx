@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useParams } from 'react-router-dom'
-import * as api from '../../data/api.js'
+import * as api from '../../api/api.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import ActionBar from '../../components/ActionBar.jsx'
 import Loader from '../../components/Loader.jsx'

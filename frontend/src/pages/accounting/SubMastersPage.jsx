@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import * as api from '../../data/api.js'
+import * as api from '../../api/api.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'

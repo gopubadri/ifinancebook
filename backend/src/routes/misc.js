@@ -4,7 +4,7 @@ import { query } from '../db.js'
 import { mapBike, mapDayReport, mapAuthUser } from '../mappers.js'
 import { requireRole } from '../middleware/auth.js'
 import { refreshAllDerived, refreshDashboardStats } from '../services/refresh.js'
-import { isPhase2Module, MODULE_MAP } from '../txConfig.js'
+import { isPhase2Module, MODULE_MAP } from '../config/txConfig.js'
 import { listResource, createResource } from './transactions.js'
 import { parsePagination, pageResult } from '../utils/pagination.js'
 import { runGlobalSearch } from '../services/search.js'
@@ -355,6 +355,160 @@ router.get('/reports/day-report', async (_req, res) => {
     return res.json(rows)
   }
   res.json(stored.rows.map(mapDayReport))
+})
+
+router.get('/reports/closed-hp', async (_req, res) => {
+  const { rows } = await query(
+    `SELECT id, hp_no, name, mobile, reg_no, village, emi_amount, emi_period,
+            closed, closed_date, created_by
+     FROM customers WHERE closed = 'YES'
+     ORDER BY COALESCE(closed_date, clr_date) DESC NULLS LAST, id DESC`
+  )
+  res.json({
+    title: 'Closed HP Report',
+    count: rows.length,
+    rows: rows.map((r, i) => ({
+      sno: i + 1,
+      id: r.id,
+      hpNo: r.hp_no,
+      name: r.name,
+      mobile: r.mobile || '',
+      regNo: r.reg_no || '',
+      village: r.village || '',
+      emiAmount: Number(r.emi_amount || 0),
+      emiPeriod: r.emi_period,
+      closedDate: r.closed_date ? String(r.closed_date).slice(0, 10) : '',
+      createdBy: r.created_by || '',
+    })),
+  })
+})
+
+router.get('/reports/seized-hp', async (_req, res) => {
+  const { rows } = await query(
+    `SELECT id, hp_no, name, mobile, reg_no, village, emi_amount, emi_period,
+            seized, seized_date, closed, created_by
+     FROM customers WHERE seized = 'YES'
+     ORDER BY COALESCE(seized_date, clr_date) DESC NULLS LAST, id DESC`
+  )
+  res.json({
+    title: 'Seized HP Report',
+    count: rows.length,
+    rows: rows.map((r, i) => ({
+      sno: i + 1,
+      id: r.id,
+      hpNo: r.hp_no,
+      name: r.name,
+      mobile: r.mobile || '',
+      regNo: r.reg_no || '',
+      village: r.village || '',
+      emiAmount: Number(r.emi_amount || 0),
+      emiPeriod: r.emi_period,
+      seizedDate: r.seized_date ? String(r.seized_date).slice(0, 10) : '',
+      closed: r.closed,
+      createdBy: r.created_by || '',
+    })),
+  })
+})
+
+router.get('/reports/od', async (_req, res) => {
+  const { getSettingsData, calcOdInterest } = await import('../utils/settings.js')
+  const settings = await getSettingsData()
+  const odRate = Number(settings.odInterest ?? 0.1)
+  const today = new Date().toISOString().slice(0, 10)
+
+  const { rows } = await query(
+    `SELECT c.id, c.hp_no, c.name, c.mobile, c.reg_no, c.village,
+            e.sno, e.due_date, e.balance, e.status
+     FROM emi_schedules e
+     JOIN customers c ON c.id = e.customer_id
+     WHERE e.status <> 'paid'
+       AND e.due_date < $1::date
+       AND c.closed = 'NO'
+     ORDER BY e.due_date, c.hp_no, e.sno`,
+    [today]
+  )
+
+  const items = rows.map((r, i) => {
+    const balance = Number(r.balance || 0)
+    const dueDate = r.due_date ? String(r.due_date).slice(0, 10) : ''
+    const od = calcOdInterest(balance, dueDate, odRate)
+    return {
+      sno: i + 1,
+      customerId: r.id,
+      hpNo: r.hp_no,
+      name: r.name,
+      mobile: r.mobile || '',
+      regNo: r.reg_no || '',
+      village: r.village || '',
+      emiSno: r.sno,
+      dueDate,
+      balance,
+      daysOverdue: od.days,
+      odInterest: od.interest,
+      odTotal: Math.round((balance + od.interest) * 100) / 100,
+    }
+  })
+
+  const overduePrincipal = items.reduce((s, r) => s + r.balance, 0)
+  const odInterestTotal = items.reduce((s, r) => s + r.odInterest, 0)
+
+  res.json({
+    title: 'OD Report',
+    asOf: today,
+    odRatePerDay: odRate,
+    count: items.length,
+    overduePrincipal: Math.round(overduePrincipal * 100) / 100,
+    odInterestTotal: Math.round(odInterestTotal * 100) / 100,
+    grandTotal: Math.round((overduePrincipal + odInterestTotal) * 100) / 100,
+    rows: items,
+  })
+})
+
+router.get('/reports/collection', async (req, res) => {
+  const from = req.query.from || null
+  const to = req.query.to || null
+  const params = []
+  let where = '1=1'
+  if (from) {
+    params.push(from)
+    where += ` AND r.paid_date >= $${params.length}::date`
+  }
+  if (to) {
+    params.push(to)
+    where += ` AND r.paid_date <= $${params.length}::date`
+  }
+
+  const { rows } = await query(
+    `SELECT r.receipt_no, r.paid_date, r.total, r.created_by,
+            c.id AS customer_id, c.name, c.hp_no, c.reg_no, c.village
+     FROM receipts r
+     JOIN customers c ON c.id = r.customer_id
+     WHERE ${where}
+     ORDER BY r.paid_date DESC, r.id DESC`,
+    params
+  )
+
+  const items = rows.map((r, i) => ({
+    sno: i + 1,
+    customerId: r.customer_id,
+    receiptNo: String(r.receipt_no),
+    paidDate: r.paid_date ? String(r.paid_date).slice(0, 10) : '',
+    name: r.name,
+    hpNo: r.hp_no,
+    regNo: r.reg_no || '',
+    village: r.village || '',
+    amount: Number(r.total || 0),
+    createdBy: r.created_by || '',
+  }))
+
+  res.json({
+    title: 'Collection Report',
+    from,
+    to,
+    count: items.length,
+    totalCollected: Math.round(items.reduce((s, r) => s + r.amount, 0) * 100) / 100,
+    rows: items,
+  })
 })
 
 router.get('/charts', async (_req, res) => {

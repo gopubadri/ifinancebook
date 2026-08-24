@@ -1,11 +1,6 @@
-// columns: [{ key, label, numeric, render(row) }]
 export default function DataTable({ columns, rows, emptyMessage = 'No records found.' }) {
-  if (!rows || rows.length === 0) {
-    return (
-      <div className="table-wrap">
-        <div className="empty-state">{emptyMessage}</div>
-      </div>
-    )
+  if (!rows?.length) {
+    return <div className="table-wrap"><div className="empty-state">{emptyMessage}</div></div>
   }
 
   return (

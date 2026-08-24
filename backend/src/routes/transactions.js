@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { query } from '../db.js'
-import { MODULE_MAP } from '../txConfig.js'
+import { MODULE_MAP } from '../config/txConfig.js'
 import { refreshAllDerived } from '../services/refresh.js'
 import { postIeBill } from '../services/ledger.js'
 

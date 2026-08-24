@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import * as api from '../../data/api.js'
+import * as api from '../../api/api.js'
 
 function Panel({ title, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen)

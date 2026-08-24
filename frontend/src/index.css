@@ -638,7 +638,7 @@ table.data-table {
 }
 .password-field input {
   width: 100%;
-  padding: 8px 40px 8px 10px;
+  padding: 8px 52px 8px 10px;
   border: 1px solid var(--rule);
   border-radius: var(--radius);
   font-size: 13.5px;
@@ -647,26 +647,17 @@ table.data-table {
 }
 .password-toggle {
   position: absolute;
-  right: 6px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
   border: none;
   background: transparent;
   color: var(--muted);
-  width: 32px;
-  height: 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
+  font-size: 12px;
   cursor: pointer;
-  padding: 0;
+  padding: 4px;
 }
 .password-toggle:hover {
-  color: var(--ledger-green);
-  background: rgba(22, 52, 44, 0.06);
-}
-.password-toggle.is-open {
   color: var(--ledger-green);
 }
 

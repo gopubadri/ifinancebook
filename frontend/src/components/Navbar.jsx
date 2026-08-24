@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext.jsx'
-import * as api from '../data/api.js'
+import * as api from '../api/api.js'
 
 const TRANSACTIONS = [
   ['HandLoans', '/module/handloans-new'],
@@ -17,7 +17,7 @@ const TRANSACTIONS = [
   ['Assets', '/module/assets-new'],
   ['Deposits(DP) New', '/module/deposits-dp-new'],
   ['Inc & Exp Accounts', '/module/income-expenses-new'],
-  ['Journels', '/accounting/journals'],
+  ['Journals', '/accounting/journals'],
   ['Hand Loans Type 2', '/module/hand-loans'],
 ]
 
@@ -25,60 +25,31 @@ const OTHERS = [
   ['Income & Expense', '/module/income-expense-transactions'],
   ['RTA', '/module/rta'],
   ['All Accounts', '/accounting/accounts'],
-  ['Masters', '/accounting/sub-masters'],
   ['Sub Masters', '/accounting/sub-masters'],
   ['Trial Balance', '/accounting/trial-balance'],
-  ['Lines', '/module/routes'],
-  ['Branch Points', '/module/branch-points'],
   ['Agents', '/module/agents'],
-  ['Bike Types', '/module/bike-types'],
   ['Branches', '/module/branches'],
-  ['Blacklist', '/module/blacklist'],
 ]
 
-function NavDropdown({ label, items }) {
+function Dropdown({ label, items }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
 
   useEffect(() => {
-    function onClick(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
   }, [])
 
   return (
-    <div className="nav-item" ref={ref} onClick={() => setOpen((o) => !o)} style={{ cursor: 'pointer' }}>
+    <div className="nav-item" ref={ref} onClick={() => setOpen(!open)} style={{ cursor: 'pointer' }}>
       {label} <span style={{ fontSize: 10 }}>{open ? '▲' : '▼'}</span>
       {open && (
         <div className="nav-dropdown" onClick={() => setOpen(false)}>
-          {items.map(([text, to]) => (
-            <Link key={text} to={to}>{text}</Link>
-          ))}
+          {items.map(([text, to]) => <Link key={text} to={to}>{text}</Link>)}
         </div>
       )}
     </div>
-  )
-}
-
-function SuggestGroup({ title, items, onPick }) {
-  if (!items?.length) return null
-  return (
-    <>
-      <div className="nav-search-heading">{title}</div>
-      {items.map((item) => (
-        <button
-          key={`${title}-${item.to}-${item.id || item.title}`}
-          type="button"
-          className="nav-search-item"
-          onClick={() => onPick(item.to)}
-        >
-          <strong>{item.title}</strong>
-          <span>{item.subtitle}</span>
-        </button>
-      ))}
-    </>
   )
 }
 
@@ -88,71 +59,71 @@ export default function Navbar() {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState(null)
   const [open, setOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const userRef = useRef(null)
   const searchRef = useRef(null)
 
   useEffect(() => {
-    function onClick(e) {
-      if (userRef.current && !userRef.current.contains(e.target)) setUserMenuOpen(false)
+    const close = (e) => {
+      if (userRef.current && !userRef.current.contains(e.target)) setMenuOpen(false)
       if (searchRef.current && !searchRef.current.contains(e.target)) setOpen(false)
     }
-    document.addEventListener('mousedown', onClick)
-    return () => document.removeEventListener('mousedown', onClick)
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
   }, [])
 
   useEffect(() => {
-    const term = query.trim()
-    if (term.length < 2) {
+    const q = query.trim()
+    if (q.length < 2) {
       setResults(null)
-      return undefined
+      return
     }
     let alive = true
-    const timer = setTimeout(() => {
-      api.globalSearch(term, 4)
-        .then((data) => {
-          if (!alive) return
-          setResults(data)
-          setOpen(true)
-        })
-        .catch(() => {
-          if (alive) setResults(null)
-        })
+    const t = setTimeout(() => {
+      api.globalSearch(q, 4)
+        .then((data) => { if (alive) { setResults(data); setOpen(true) } })
+        .catch(() => { if (alive) setResults(null) })
     }, 250)
-    return () => {
-      alive = false
-      clearTimeout(timer)
-    }
+    return () => { alive = false; clearTimeout(t) }
   }, [query])
 
-  function goFullSearch(e) {
+  function searchAll(e) {
     e?.preventDefault?.()
-    const term = query.trim()
-    if (!term) return
+    const q = query.trim()
+    if (!q) return
     setOpen(false)
-    navigate(`/search?q=${encodeURIComponent(term)}`)
+    navigate(`/search?q=${encodeURIComponent(q)}`)
   }
 
-  function pick(to) {
+  function go(to) {
     setOpen(false)
     setQuery('')
     navigate(to)
   }
 
-  const initial = user?.name?.charAt(0) || '?'
-  const modulePreview = (results?.modules || []).flatMap((m) =>
-    (m.items || []).slice(0, 2).map((item) => ({ ...item, _group: m.label }))
-  ).slice(0, 6)
+  const modules = (results?.modules || [])
+    .flatMap((m) => (m.items || []).slice(0, 2))
+    .slice(0, 6)
 
-  const hasHits = results && (
-    (results.pages?.length || 0) +
-    (results.customers?.length || 0) +
-    (results.bikes?.length || 0) +
-    (results.users?.length || 0) +
-    (results.accounts?.length || 0) +
-    (results.journals?.length || 0) +
-    modulePreview.length
-  ) > 0
+  function group(title, items) {
+    if (!items?.length) return null
+    return (
+      <>
+        <div className="nav-search-heading">{title}</div>
+        {items.map((item) => (
+          <button
+            key={title + (item.id || item.title) + item.to}
+            type="button"
+            className="nav-search-item"
+            onClick={() => go(item.to)}
+          >
+            <strong>{item.title}</strong>
+            <span>{item.subtitle}</span>
+          </button>
+        ))}
+      </>
+    )
+  }
 
   return (
     <nav className="navbar">
@@ -160,17 +131,16 @@ export default function Navbar() {
         <Link to="/dashboard" className="brand">
           <span className="brand-mark">iF</span> iFinance
         </Link>
-        <NavDropdown label="Transactions" items={TRANSACTIONS} />
-        <NavDropdown label="Others" items={OTHERS} />
+        <Dropdown label="Transactions" items={TRANSACTIONS} />
+        <Dropdown label="Others" items={OTHERS} />
         <Link to="/finance" className="nav-item">Finance&apos;s</Link>
 
         <div className="nav-spacer" />
 
         <div className="nav-search-wrap" ref={searchRef}>
-          <form className="nav-search" onSubmit={goFullSearch}>
-            <span style={{ opacity: 0.7, fontSize: 12 }}>⌕</span>
+          <form className="nav-search" onSubmit={searchAll}>
             <input
-              placeholder="Search folders, HP, modules…"
+              placeholder="Search..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => { if (results) setOpen(true) }}
@@ -178,32 +148,31 @@ export default function Navbar() {
           </form>
           {open && query.trim().length >= 2 && (
             <div className="nav-search-results">
-              {!results && <div className="nav-search-empty">Searching…</div>}
-              {results && !hasHits && (
+              {!results && <div className="nav-search-empty">Searching...</div>}
+              {results && !(results.pages?.length || results.customers?.length || modules.length) && (
                 <div className="nav-search-empty">No matches. Press Enter for full search.</div>
               )}
-              <SuggestGroup title="Folders" items={results?.pages} onPick={pick} />
-              <SuggestGroup title="Finances" items={results?.customers} onPick={pick} />
-              <SuggestGroup title="Consultancy" items={results?.bikes} onPick={pick} />
-              <SuggestGroup title="Modules" items={modulePreview} onPick={pick} />
-              <SuggestGroup title="Accounts" items={results?.accounts} onPick={pick} />
-              <SuggestGroup title="Users" items={results?.users} onPick={pick} />
-              <SuggestGroup title="Journals" items={results?.journals} onPick={pick} />
+              {group('Folders', results?.pages)}
+              {group('Finances', results?.customers)}
+              {group('Consultancy', results?.bikes)}
+              {group('Modules', modules)}
+              {group('Accounts', results?.accounts)}
+              {group('Users', results?.users)}
               {results && (
-                <button type="button" className="nav-search-footer" onClick={goFullSearch}>
-                  View all results for &quot;{query.trim()}&quot; ({results.totals?.all || 0}) →
+                <button type="button" className="nav-search-footer" onClick={searchAll}>
+                  View all for &quot;{query.trim()}&quot;
                 </button>
               )}
             </div>
           )}
         </div>
 
-        <div className="nav-item" ref={userRef} onClick={() => setUserMenuOpen((o) => !o)} style={{ cursor: 'pointer', padding: 0 }}>
+        <div className="nav-item" ref={userRef} onClick={() => setMenuOpen(!menuOpen)} style={{ cursor: 'pointer', padding: 0 }}>
           <div className="nav-user">
-            <span className="nav-avatar">{initial}</span>
-            {user?.name} <span style={{ fontSize: 10 }}>▼</span>
+            <span className="nav-avatar">{user?.name?.charAt(0) || '?'}</span>
+            {user?.name} ▼
           </div>
-          {userMenuOpen && (
+          {menuOpen && (
             <div className="nav-dropdown" style={{ right: 0, left: 'auto', minWidth: 160 }}>
               <div style={{ padding: '8px 10px', fontSize: 11.5, color: 'var(--muted)' }}>{user?.role}</div>
               <Link to="/settings">Settings</Link>

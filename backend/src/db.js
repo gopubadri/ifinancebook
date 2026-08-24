@@ -3,20 +3,16 @@ import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-// Always load server/.env even if process was started from repo root
-dotenv.config({ path: path.resolve(__dirname, '../.env') })
+dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') })
 
 const { Pool } = pg
 
 if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set. Copy server/.env.example to server/.env and set your Postgres password.')
+  throw new Error('DATABASE_URL missing. Copy backend/.env.example to backend/.env')
 }
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-})
+export const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
-export async function query(text, params) {
+export function query(text, params) {
   return pool.query(text, params)
 }

@@ -1,54 +1,72 @@
 # iFinance Books
 
-Vehicle finance & accounting app — **React** frontend + **Node/Express + PostgreSQL** backend.
+Vehicle finance & accounting — React frontend + Express/PostgreSQL backend.
 
-## Folder layout
+## Folder structure
 
 ```
 ifinance-app/
-├── frontend/          React + Vite UI (port 5173)
-├── backend/           Express API (port 4000) + SQL/scripts
-├── docs/              Notes & printable architecture one-pager
-└── package.json       Root helper scripts
+│
+├── frontend/                 # UI (React + Vite)  → http://localhost:5173
+│   ├── src/
+│   │   ├── api/              # API calls to backend
+│   │   ├── components/       # Shared UI (Navbar, tables, …)
+│   │   ├── context/          # Auth session
+│   │   ├── pages/
+│   │   │   ├── auth/         # Login / register
+│   │   │   ├── dashboard/    # Home + global search
+│   │   │   ├── finance/      # Finance list + new finance
+│   │   │   ├── customer/     # One finance detail tabs
+│   │   │   ├── modules/      # Handloans, banks, consultancy, …
+│   │   │   ├── reports/      # Day report, BS, P&L, charts
+│   │   │   ├── accounting/   # COA, journals, trial balance
+│   │   │   └── admin/        # Users, settings, support
+│   │   ├── utils/
+│   │   ├── App.jsx           # Routes
+│   │   └── main.jsx
+│   ├── index.html
+│   └── vite.config.js
+│
+├── backend/                  # API (Express)  → http://localhost:4000
+│   ├── src/
+│   │   ├── config/           # Module maps
+│   │   ├── middleware/       # JWT auth
+│   │   ├── routes/           # HTTP endpoints
+│   │   ├── services/         # Ledger, search, refresh
+│   │   ├── utils/
+│   │   ├── db.js
+│   │   ├── mappers.js
+│   │   └── index.js
+│   ├── sql/                  # Schema + migrations
+│   └── scripts/              # db setup / seed
+│
+├── docs/
+├── package.json              # Root helpers (run both apps)
+└── README.md
 ```
 
-## Quick start
+## How they connect
+
+```
+Browser  →  frontend (5173)  →  /api proxy  →  backend (4000)  →  PostgreSQL
+```
+
+## Run
 
 ```bash
-# install (once)
 npm run install:all
-
-# terminal 1 — API
-npm run dev:backend
-
-# terminal 2 — UI
-npm run dev:frontend
+npm run dev:backend     # terminal 1
+npm run dev:frontend    # terminal 2
 ```
 
-Open http://localhost:5173
+Open http://localhost:5173 — login `admin` / `demo123`
 
-Login: `admin` / `demo123` (or a registered user).
-
-### Backend env
+## Backend env
 
 ```bash
 cd backend
 copy .env.example .env
-# set DATABASE_URL password, then:
+# set DATABASE_URL, then:
 npm run db:setup
 npm run db:seed
 ```
-
-## Root scripts
-
-| Command | What it does |
-|---------|----------------|
-| `npm run dev:frontend` | Vite UI on :5173 |
-| `npm run dev:backend` | API on :4000 |
-| `npm run build` | Production frontend build |
-| `npm run db:setup` / `db:seed` | Database init |
-| `npm run db:phase2` / `db:phase3` / `db:p0` | Schema phases |
-
-## How code connects
-
-Browser → `frontend/` → `/api` proxy → `backend/` → PostgreSQL

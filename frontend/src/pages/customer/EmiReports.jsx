@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
-import * as api from '../../data/api.js'
+import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
 import Loader from '../../components/Loader.jsx'
 import DataTable from '../../components/DataTable.jsx'
