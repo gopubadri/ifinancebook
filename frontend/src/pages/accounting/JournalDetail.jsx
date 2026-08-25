@@ -1,21 +1,47 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
 
 export default function JournalDetail() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const [data, setData] = useState(null)
   const [error, setError] = useState('')
+  const [reversing, setReversing] = useState(false)
 
   useEffect(() => {
     api.getJournal(id).then(setData).catch((err) => setError(err.message))
   }, [id])
 
-  if (error) return <div className="login-error">{error}</div>
+  async function onReverse() {
+    if (!window.confirm(`Reverse journal #${data.id}? This posts an opposite entry.`)) return
+    setReversing(true)
+    setError('')
+    try {
+      const result = await api.reverseJournal(data.id)
+      navigate(`/accounting/journals/${result.id}`)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setReversing(false)
+    }
+  }
+
+  function onExport() {
+    exportCsv(`journal-${data.id}`, [
+      { label: 'Account', key: 'accountName' },
+      { label: 'Description', key: 'description' },
+      { label: 'Debit', key: 'debit' },
+      { label: 'Credit', key: 'credit' },
+    ], data.lines)
+  }
+
+  if (error && !data) return <div className="login-error">{error}</div>
   if (!data) return <Loader label="Loading journal..." />
 
   const columns = [
@@ -33,9 +59,31 @@ export default function JournalDetail() {
         { label: `JE#${data.id}` },
       ]} />
       <div className="page-header">
-        <h1>Journal #{data.id}</h1>
-        <Link className="btn outline" to="/accounting/journals">Back</Link>
+        <h1>
+          Journal #{data.id}
+          {data.referenceType === 'REVERSE' && (
+            <span className="stamp" style={{ marginLeft: 10, fontSize: 11 }}>Reversal</span>
+          )}
+          {data.reversedById && (
+            <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>Reversed</span>
+          )}
+        </h1>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+          {data.canReverse && (
+            <button type="button" className="btn outline sm" disabled={reversing} onClick={onReverse}>
+              {reversing ? 'Reversing…' : 'Reverse'}
+            </button>
+          )}
+          {data.reversedById && (
+            <Link className="btn outline sm" to={`/accounting/journals/${data.reversedById}`}>
+              View reversal #{data.reversedById}
+            </Link>
+          )}
+          <Link className="btn outline sm" to="/accounting/journals">Back</Link>
+        </div>
       </div>
+      {error && <div className="login-error" style={{ marginBottom: 12 }}>{error}</div>}
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-body">
           <div className="field-grid">

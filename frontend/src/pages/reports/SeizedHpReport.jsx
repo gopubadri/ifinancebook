@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -16,6 +17,20 @@ export default function SeizedHpReport() {
 
   if (!data) return <Loader label="Loading seized HP report..." />
 
+  function onExport() {
+    exportCsv('seized-hp-report', [
+      { label: 'SNo', key: 'sno' },
+      { label: 'HP No', key: 'hpNo' },
+      { label: 'Name', key: 'name' },
+      { label: 'Mobile', key: 'mobile' },
+      { label: 'Reg No', key: 'regNo' },
+      { label: 'Village', key: 'village' },
+      { label: 'EMI', key: 'emiAmount' },
+      { label: 'Seized Date', key: 'seizedDate' },
+      { label: 'Closed', key: 'closed' },
+    ], data.rows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[
@@ -25,7 +40,10 @@ export default function SeizedHpReport() {
       ]} />
       <div className="page-header">
         <h1>Seized HP Report</h1>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>{data.count} account(s)</span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>{data.count} account(s)</span>
+          <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+        </div>
       </div>
 
       <div className="table-wrap">

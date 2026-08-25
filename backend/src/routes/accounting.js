@@ -105,6 +105,11 @@ router.get('/journals/:id', async (req, res) => {
     [req.params.id]
   )
   const e = entry.rows[0]
+  const rev = await query(
+    `SELECT id FROM journal_entries
+     WHERE reference_type = 'REVERSE' AND reference_id = $1 LIMIT 1`,
+    [`JE-${e.id}`]
+  )
   res.json({
     id: e.id,
     date: e.entry_date instanceof Date ? e.entry_date.toISOString().slice(0, 10) : String(e.entry_date).slice(0, 10),
@@ -112,6 +117,8 @@ router.get('/journals/:id', async (req, res) => {
     referenceType: e.reference_type,
     referenceId: e.reference_id,
     createdBy: e.created_by,
+    reversedById: rev.rows[0]?.id || null,
+    canReverse: e.reference_type !== 'REVERSE' && !rev.rows[0],
     lines: lines.rows.map((l) => ({
       id: l.id,
       accountId: l.account_id,
@@ -134,6 +141,47 @@ router.post('/journals', async (req, res) => {
       createdBy: req.user?.name || null,
       lines: req.body?.lines || [],
     })
+    res.status(201).json(result)
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
+})
+
+/** Create a reversing journal (swap debit/credit). Idempotent per source JE. */
+router.post('/journals/:id/reverse', async (req, res) => {
+  try {
+    const entry = await query(`SELECT * FROM journal_entries WHERE id = $1`, [req.params.id])
+    if (!entry.rows[0]) return res.status(404).json({ error: 'Journal not found' })
+    const e = entry.rows[0]
+
+    if (e.reference_type === 'REVERSE') {
+      return res.status(400).json({ error: 'Cannot reverse a reversing entry. Open the original journal instead.' })
+    }
+
+    const lines = await query(
+      `SELECT account_id, debit, credit, description
+       FROM journal_lines WHERE journal_entry_id = $1 ORDER BY id`,
+      [req.params.id]
+    )
+    if (lines.rowCount === 0) return res.status(400).json({ error: 'Journal has no lines to reverse.' })
+
+    const result = await postJournal({
+      entryDate: req.body?.entryDate || new Date().toISOString().slice(0, 10),
+      narration: req.body?.narration || `Reversal of JE#${e.id}${e.narration ? ` — ${e.narration}` : ''}`,
+      referenceType: 'REVERSE',
+      referenceId: `JE-${e.id}`,
+      createdBy: req.user?.name || null,
+      lines: lines.rows.map((l) => ({
+        accountId: l.account_id,
+        debit: Number(l.credit || 0),
+        credit: Number(l.debit || 0),
+        description: l.description ? `Reversal: ${l.description}` : `Reversal of JE#${e.id}`,
+      })),
+    })
+
+    if (result.skipped) {
+      return res.status(409).json({ error: 'This journal was already reversed.', id: result.id })
+    }
     res.status(201).json(result)
   } catch (err) {
     res.status(400).json({ error: err.message })

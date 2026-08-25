@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -19,15 +20,26 @@ export default function DayReport() {
   const emiCollection = rows.slice(1).reduce((s, r) => s + r.receiptAmt, 0)
   const openingBalance = rows[0]?.receiptAmt || 0
 
+  function onExport() {
+    exportCsv(`day-report-${today}`, [
+      { label: 'SNo', key: 'sno' },
+      { label: 'Name', key: 'name' },
+      { label: 'Rc No', key: 'rcNo' },
+      { label: 'HP', key: 'hp' },
+      { label: 'Description', key: 'desc' },
+      { label: 'Created By', key: 'createdBy' },
+      { label: 'Receipt / Payment', key: 'receiptAmt' },
+    ], rows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports', to: '/reports' }, { label: 'Day Report' }]} />
       <div className="page-header">
         <h1>Day Report</h1>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn outline sm">XL</button>
-          <button className="btn outline sm">USR</button>
-          <button className="btn outline sm">Print</button>
+          <button className="btn outline sm" type="button" onClick={onExport}>Excel</button>
+          <button className="btn outline sm" type="button" onClick={() => window.print()}>Print</button>
         </div>
       </div>
 

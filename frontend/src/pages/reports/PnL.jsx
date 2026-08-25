@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -23,6 +24,33 @@ export default function PnL() {
     rows.push([data.income[i], data.expenses[i]])
   }
 
+  function onExport() {
+    const exportRows = rows.map(([inc, exp]) => ({
+      income: inc ? inc[0] : '',
+      incomeAmt: inc ? inc[1] : '',
+      expense: exp ? exp[0] : '',
+      expenseAmt: exp ? exp[1] : '',
+    }))
+    exportRows.push({
+      income: 'Total',
+      incomeAmt: totalIncome,
+      expense: 'Total',
+      expenseAmt: totalExpenses,
+    })
+    exportRows.push({
+      income: 'Profit',
+      incomeAmt: totalIncome - totalExpenses,
+      expense: '',
+      expenseAmt: '',
+    })
+    exportCsv('pnl-report', [
+      { label: 'Income', key: 'income' },
+      { label: 'Income Amount', key: 'incomeAmt' },
+      { label: 'Expense', key: 'expense' },
+      { label: 'Expense Amount', key: 'expenseAmt' },
+    ], exportRows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports', to: '/reports' }, { label: 'P & L Report' }]} />
@@ -30,6 +58,7 @@ export default function PnL() {
         <h1>P&amp;L Report
           <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>From ledger</span>
         </h1>
+        <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
       </div>
 
       <div className="table-wrap">

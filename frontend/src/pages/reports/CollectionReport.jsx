@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -30,11 +31,31 @@ export default function CollectionReport() {
       ]} />
       <div className="page-header">
         <h1>Collection Report</h1>
-        {data && (
-          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-            {data.count} receipt(s) · Total {inr(data.totalCollected)}
-          </span>
-        )}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {data && (
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {data.count} receipt(s) · Total {inr(data.totalCollected)}
+            </span>
+          )}
+          {data && (
+            <button
+              type="button"
+              className="btn outline sm"
+              onClick={() => exportCsv(`collection-${from}-to-${to}`, [
+                { label: 'SNo', key: 'sno' },
+                { label: 'Date', key: 'paidDate' },
+                { label: 'Rc No', key: 'receiptNo' },
+                { label: 'HP No', key: 'hpNo' },
+                { label: 'Name', key: 'name' },
+                { label: 'Village', key: 'village' },
+                { label: 'Created By', key: 'createdBy' },
+                { label: 'Amount', key: 'amount' },
+              ], data.rows)}
+            >
+              Excel
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="panel" style={{ marginBottom: 12 }}>

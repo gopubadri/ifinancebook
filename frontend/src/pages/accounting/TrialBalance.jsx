@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -25,6 +26,16 @@ export default function TrialBalance() {
     { key: 'credit', label: 'Credit', numeric: true, render: (r) => (r.credit ? inr(r.credit) : '') },
   ]
 
+  function onExport() {
+    exportCsv('trial-balance', [
+      { label: 'Code', key: 'code' },
+      { label: 'Account', key: 'name' },
+      { label: 'Sub Master', key: 'subMaster' },
+      { label: 'Debit', key: 'debit' },
+      { label: 'Credit', key: 'credit' },
+    ], data.rows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports', to: '/reports' }, { label: 'Trial Balance' }]} />
@@ -32,9 +43,12 @@ export default function TrialBalance() {
         <h1>Trial Balance
           <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>Phase 3</span>
         </h1>
-        <span className={`stamp ${data.balanced ? 'paid' : 'pending'}`}>
-          {data.balanced ? 'Balanced' : 'Out of balance'}
-        </span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span className={`stamp ${data.balanced ? 'paid' : 'pending'}`}>
+            {data.balanced ? 'Balanced' : 'Out of balance'}
+          </span>
+          <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+        </div>
       </div>
       <DataTable columns={columns} rows={data.rows} />
       <div className="panel" style={{ marginTop: 14 }}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -19,6 +20,20 @@ export default function BalanceSheet() {
   const totalLiabilities = data.liabilities.reduce((s, [, v]) => s + v, 0)
   const totalAssets = data.assets.reduce((s, [, v]) => s + v, 0)
 
+  function onExport() {
+    const rows = [
+      ...data.liabilities.map(([name, amount]) => ({ side: 'Liabilities', name, amount })),
+      { side: 'Liabilities', name: 'Total Liabilities', amount: totalLiabilities },
+      ...data.assets.map(([name, amount]) => ({ side: 'Assets', name, amount })),
+      { side: 'Assets', name: 'Total Assets', amount: totalAssets },
+    ]
+    exportCsv('balance-sheet', [
+      { label: 'Side', key: 'side' },
+      { label: 'Particulars', key: 'name' },
+      { label: 'Amount', key: 'amount' },
+    ], rows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports', to: '/reports' }, { label: 'Balance Sheet' }]} />
@@ -27,6 +42,7 @@ export default function BalanceSheet() {
           <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>From ledger</span>
         </h1>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
           <Link className="btn outline sm" to="/accounting/trial-balance">Trial Balance</Link>
           <Link className="btn outline sm" to="/accounting/journals">Journals</Link>
         </div>

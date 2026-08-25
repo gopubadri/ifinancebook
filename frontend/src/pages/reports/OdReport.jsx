@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
@@ -16,6 +17,21 @@ export default function OdReport() {
 
   if (!data) return <Loader label="Loading OD report..." />
 
+  function onExport() {
+    exportCsv(`od-report-${data.asOf}`, [
+      { label: 'SNo', key: 'sno' },
+      { label: 'HP No', key: 'hpNo' },
+      { label: 'Name', key: 'name' },
+      { label: 'Village', key: 'village' },
+      { label: 'EMI#', key: 'emiSno' },
+      { label: 'Due Date', key: 'dueDate' },
+      { label: 'Balance', key: 'balance' },
+      { label: 'Days Overdue', key: 'daysOverdue' },
+      { label: 'OD Interest', key: 'odInterest' },
+      { label: 'Total', key: 'odTotal' },
+    ], data.rows)
+  }
+
   return (
     <div>
       <Breadcrumb items={[
@@ -25,9 +41,12 @@ export default function OdReport() {
       ]} />
       <div className="page-header">
         <h1>OD Report</h1>
-        <span style={{ fontSize: 13, color: 'var(--muted)' }}>
-          As of {data.asOf} · rate {data.odRatePerDay}% / day · {data.count} overdue EMI(s)
-        </span>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, color: 'var(--muted)' }}>
+            As of {data.asOf} · rate {data.odRatePerDay}% / day · {data.count} overdue EMI(s)
+          </span>
+          <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+        </div>
       </div>
 
       <div className="panel" style={{ marginBottom: 12 }}>

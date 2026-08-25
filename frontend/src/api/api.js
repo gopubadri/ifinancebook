@@ -185,6 +185,13 @@ export function createJournal(payload) {
   return request('/accounting/journals', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function reverseJournal(id, payload = {}) {
+  return request(`/accounting/journals/${id}/reverse`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
 export function getTrialBalance() {
   return request('/accounting/trial-balance')
 }

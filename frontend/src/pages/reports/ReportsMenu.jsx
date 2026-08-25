@@ -6,7 +6,7 @@ import Loader from '../../components/Loader.jsx'
 
 const LINKABLE = {
   'Day Report': '/reports/day-report',
-  'Multi Day Report': '/reports/day-report',
+  'Multi Day Report': '/reports/collection',
   'Balance Sheet': '/reports/balance-sheet',
   'Trail Balance Sheet': '/accounting/trial-balance',
   'Ledgers Balance Report': '/accounting/accounts',
@@ -58,7 +58,7 @@ export default function ReportsMenu() {
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports' }]} />
       <h1 style={{ marginBottom: 6 }}>Reports</h1>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 10 }}>
-        Linked chips open live reports. Grey chips are still pending (Line Reports / Excel-PDF).
+        Linked chips open live reports. Use Excel on report pages to download CSV. Grey chips = still pending Line Reports.
       </p>
       <Section title="Finance Reports" items={menu.finance} />
       <Section title="Finance Line Reports Type 2" items={menu.financeType2} />
