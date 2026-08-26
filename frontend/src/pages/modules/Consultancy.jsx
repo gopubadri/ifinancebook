@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -102,9 +103,30 @@ export default function Consultancy() {
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Consultancy' }]} />
       <div className="page-header">
         <h1>Consultancy {rows && <span className="count">({rows.length})</span>}</h1>
-        <button className="btn brass" type="button" onClick={() => { setShowForm((v) => !v); setSellId(null) }}>
-          {showForm ? 'Cancel' : '+ New Bike'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {rows?.length > 0 && (
+            <button
+              type="button"
+              className="btn outline"
+              onClick={() => exportCsv('consultancy', [
+                { label: 'SNo', key: 'sno' },
+                { label: 'RC No', key: 'rcNo' },
+                { label: 'Makers', key: 'makers' },
+                { label: 'Model', key: 'model' },
+                { label: 'Date', key: 'purchaseDate' },
+                { label: 'Amount', key: 'purchaseAmount' },
+                { label: 'Repair', key: 'repairCost' },
+                { label: 'Selling Price', key: 'sellingPrice' },
+                { label: 'Status', key: 'status' },
+              ], rows.map((r, i) => ({ ...r, sno: i + 1, status: r.sellingPrice ? (r.status || 'sold') : 'unsold' })))}
+            >
+              Excel
+            </button>
+          )}
+          <button className="btn brass" type="button" onClick={() => { setShowForm((v) => !v); setSellId(null) }}>
+            {showForm ? 'Cancel' : '+ New Bike'}
+          </button>
+        </div>
       </div>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
         Phase 2 vehicle trading — purchases post to Assets; selling updates stock status.

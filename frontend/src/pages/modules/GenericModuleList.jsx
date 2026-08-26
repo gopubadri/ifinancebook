@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr, titleCase } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -132,9 +133,20 @@ export default function GenericModuleList() {
           {mod.title} <span className="count">({mod.total ?? mod.rows.length})</span>
           {mod.phase2 && <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>Phase 2</span>}
         </h1>
-        <button className="btn brass" type="button" onClick={() => { setShowForm((v) => !v); setError('') }}>
-          {showForm ? 'Cancel' : '+ New Account'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {mod.rows.length > 0 && (
+            <button
+              type="button"
+              className="btn outline"
+              onClick={() => exportCsv(key, columns.map((c) => ({ label: c.label, key: c.key })), mod.rows)}
+            >
+              Excel
+            </button>
+          )}
+          <button className="btn brass" type="button" onClick={() => { setShowForm((v) => !v); setError('') }}>
+            {showForm ? 'Cancel' : '+ New Account'}
+          </button>
+        </div>
       </div>
 
       <form className="list-toolbar" onSubmit={applySearch}>

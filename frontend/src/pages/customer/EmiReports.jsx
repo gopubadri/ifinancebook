@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Loader from '../../components/Loader.jsx'
 import DataTable from '../../components/DataTable.jsx'
 
@@ -39,7 +40,26 @@ export default function EmiReports() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 18, marginBottom: 16 }}>EMI's — HP No: {customer.hpNo}</h1>
+      <div className="page-header">
+        <h1 style={{ fontSize: 18, margin: 0 }}>EMI's — HP No: {customer.hpNo}</h1>
+        <button
+          type="button"
+          className="btn outline sm"
+          onClick={() => exportCsv(`emi-schedule-${customer.hpNo}`, [
+            { label: 'SNo', key: 'sno' },
+            { label: 'Due Date', key: 'dueDate' },
+            { label: 'Amount', key: 'amount' },
+            { label: 'Interest', key: 'interestComponent' },
+            { label: 'Paid Int', key: 'paidInterest' },
+            { label: 'Paid Amt', key: 'paidAmount' },
+            { label: 'Balance', key: 'balance' },
+            { label: 'Cumulative', key: 'cumulativeBalance' },
+            { label: 'Status', key: 'status' },
+          ], summary.schedule)}
+        >
+          Excel
+        </button>
+      </div>
 
       <div className="summary-grid">
         <div className="summary-cell"><div className="label">Paid Amount</div><div className="value">₹{inr(summary.paidAmount)}</div></div>

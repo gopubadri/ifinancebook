@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -65,9 +66,26 @@ export default function ChartOfAccounts() {
         <h1>Chart of Accounts <span className="count">({rows.length})</span>
           <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>Phase 3</span>
         </h1>
-        <button className="btn brass" type="button" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? 'Cancel' : '+ New Account'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {rows.length > 0 && (
+            <button
+              type="button"
+              className="btn outline"
+              onClick={() => exportCsv('chart-of-accounts', [
+                { label: 'Code', key: 'code' },
+                { label: 'Account', key: 'name' },
+                { label: 'Sub Master', key: 'subMaster' },
+                { label: 'Master', key: 'master' },
+                { label: 'Balance', key: 'balance' },
+              ], rows)}
+            >
+              Excel
+            </button>
+          )}
+          <button className="btn brass" type="button" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? 'Cancel' : '+ New Account'}
+          </button>
+        </div>
       </div>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
         Double-entry ledger accounts. Balances come from journal postings (receipts, income/expense, manual journals).

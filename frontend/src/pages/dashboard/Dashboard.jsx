@@ -16,7 +16,7 @@ const MODULES = [
   { icon: '☺', title: 'Users', desc: 'Admin, clerk & line executive accounts', to: '/users' },
   { icon: '⊕', title: 'Capitals', desc: 'Shareholder investment tracking', to: '/module/capitals' },
   { icon: '🏦', title: "Bank's", desc: 'Bank, GPay & PhonePe account balances', to: '/module/banks-new' },
-  { icon: '↗', title: 'Finance Collection', desc: 'EMI collection totals by period', to: '/reports' },
+  { icon: '↗', title: 'Finance Collection', desc: 'EMI collection totals by period', to: '/reports/collection' },
   { icon: '▣', title: 'Assets', desc: 'Fixed asset register', to: '/module/assets-new' },
   { icon: '−', title: 'Expenses', desc: 'Operating expense accounts', to: '/module/income-expenses-new' },
   { icon: '⚙', title: 'Settings', desc: 'Interest rates, receipt series, company info', to: '/settings' },
@@ -55,10 +55,10 @@ export default function Dashboard() {
             <div className="stat-label">Expenses</div>
             <div className="stat-value">₹{inr(stats.expenses)}</div>
           </div>
-          <div className="stat-cell">
+          <Link to="/reports/collection" className="stat-cell">
             <div className="stat-label">EMI Collection</div>
             <div className="stat-value">₹{inr(stats.emiCollection)}</div>
-          </div>
+          </Link>
           <div className="stat-cell">
             <div className="stat-label">HP HL Collection</div>
             <div className="stat-value">₹{inr(stats.hlCollection)}</div>
@@ -67,10 +67,10 @@ export default function Dashboard() {
             <div className="stat-label">OD Collection</div>
             <div className="stat-value">₹{inr(stats.odCollection)}</div>
           </div>
-          <div className="stat-cell">
+          <Link to="/reports/closed-hp" className="stat-cell">
             <div className="stat-label">Closed HP's</div>
             <div className="stat-value">{stats.closedHp}</div>
-          </div>
+          </Link>
         </div>
       ) : null}
 

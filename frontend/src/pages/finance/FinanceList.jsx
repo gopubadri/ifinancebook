@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -74,7 +75,30 @@ export default function FinanceList() {
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: "Finance's" }]} />
       <div className="page-header">
         <h1>Finance&apos;s {data && <span className="count">({data.total})</span>}</h1>
-        <Link to="/finance/new" className="btn brass">+ New Finance</Link>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {data?.items?.length > 0 && (
+            <button
+              type="button"
+              className="btn outline"
+              onClick={() => exportCsv(q ? `finances-${q}` : 'finances', [
+                { label: 'SNo', key: 'sno' },
+                { label: 'HP No', key: 'hpNo' },
+                { label: 'Name', key: 'name' },
+                { label: 'Mobile', key: 'mobile' },
+                { label: 'Reg No', key: 'regNo' },
+                { label: 'Village', key: 'village' },
+                { label: 'EMI Period', key: 'emiPeriod' },
+                { label: 'EMI Amount', key: 'emiAmount' },
+              ], data.items.map((r, i) => ({
+                ...r,
+                sno: ((data.page || page) - 1) * PAGE_SIZE + i + 1,
+              })))}
+            >
+              Excel
+            </button>
+          )}
+          <Link to="/finance/new" className="btn brass">+ New Finance</Link>
+        </div>
       </div>
 
       <form className="list-toolbar" onSubmit={applySearch}>

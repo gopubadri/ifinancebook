@@ -2,30 +2,28 @@ import { query } from '../db.js'
 
 /** Recompute dashboard_stats from live Phase-1 + Phase-2 tables. */
 export async function refreshDashboardStats(executor = { query }) {
-  const [receipts, expenses, handloans, overdue, closed] = await Promise.all([
-    executor.query(`SELECT COALESCE(SUM(amount), 0) AS emi, COALESCE(SUM(ta), 0) AS ta FROM receipts`),
-    executor.query(`
+  // Sequential queries so this works inside a transaction client (pg cannot pipeline on one client).
+  const receipts = await executor.query(`SELECT COALESCE(SUM(amount), 0) AS emi, COALESCE(SUM(ta), 0) AS ta FROM receipts`)
+  const expenses = await executor.query(`
       SELECT
         COALESCE(SUM(CASE WHEN bill_type = 'Income' THEN amount ELSE 0 END), 0) AS income,
         COALESCE(SUM(CASE WHEN bill_type = 'Expense' THEN amount ELSE 0 END), 0) AS expenses
       FROM ie_bills
     `).catch(async () => ({
-      // fallback if phase2 table missing
-      rows: [{ income: 0, expenses: 0 }],
-    })),
-    executor.query(`
+    rows: [{ income: 0, expenses: 0 }],
+  }))
+  const handloans = await executor.query(`
       SELECT
         COALESCE((SELECT SUM(balance) FROM handloan_accounts), 0)
         + COALESCE((SELECT SUM(balance) FROM customer_handloans WHERE status = 'open'), 0)
         AS hl
-    `).catch(async () => ({ rows: [{ hl: 0 }] })),
-    executor.query(`
+    `).catch(async () => ({ rows: [{ hl: 0 }] }))
+  const overdue = await executor.query(`
       SELECT COALESCE(SUM(balance), 0) AS od
       FROM emi_schedules
       WHERE status <> 'paid' AND due_date < CURRENT_DATE
-    `),
-    executor.query(`SELECT COUNT(*)::int AS closed FROM customers WHERE closed = 'YES'`),
-  ])
+    `)
+  const closed = await executor.query(`SELECT COUNT(*)::int AS closed FROM customers WHERE closed = 'YES'`)
 
   const emiCollection = Number(receipts.rows[0].emi || 0)
   const taIncome = Number(receipts.rows[0].ta || 0)
@@ -54,20 +52,18 @@ export async function refreshDashboardStats(executor = { query }) {
 }
 
 export async function refreshLedgerSnapshots(executor = { query }) {
-  const [hp, cash, interest, expInc, banks, capitals, chits, assets, hl] = await Promise.all([
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS outstanding FROM emi_schedules WHERE status <> 'paid'`),
-    executor.query(`SELECT COALESCE(SUM(total), 0) AS cash FROM receipts`),
-    executor.query(`SELECT COALESCE(SUM(amount), 0) AS interest FROM receipts`),
-    executor.query(`
+  const hp = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS outstanding FROM emi_schedules WHERE status <> 'paid'`)
+  const cash = await executor.query(`SELECT COALESCE(SUM(total), 0) AS cash FROM receipts`)
+  const interest = await executor.query(`SELECT COALESCE(SUM(amount), 0) AS interest FROM receipts`)
+  const expInc = await executor.query(`
       SELECT COALESCE(SUM(CASE WHEN bill_type = 'Income' THEN amount ELSE 0 END), 0) AS income
       FROM ie_bills
-    `).catch(async () => ({ rows: [{ income: 0 }] })),
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM bank_accounts`).catch(async () => ({ rows: [{ v: 0 }] })),
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM capital_accounts`).catch(async () => ({ rows: [{ v: 0 }] })),
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM chit_accounts`).catch(async () => ({ rows: [{ v: 0 }] })),
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM asset_accounts`).catch(async () => ({ rows: [{ v: 0 }] })),
-    executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM handloan_accounts`).catch(async () => ({ rows: [{ v: 0 }] })),
-  ])
+    `).catch(async () => ({ rows: [{ income: 0 }] }))
+  const banks = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM bank_accounts`).catch(async () => ({ rows: [{ v: 0 }] }))
+  const capitals = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM capital_accounts`).catch(async () => ({ rows: [{ v: 0 }] }))
+  const chits = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM chit_accounts`).catch(async () => ({ rows: [{ v: 0 }] }))
+  const assets = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM asset_accounts`).catch(async () => ({ rows: [{ v: 0 }] }))
+  const hl = await executor.query(`SELECT COALESCE(SUM(balance), 0) AS v FROM handloan_accounts`).catch(async () => ({ rows: [{ v: 0 }] }))
 
   const updates = [
     ['balance_sheet', 'assets', 'HP OUTSTANDING', Number(hp.rows[0].outstanding || 0)],

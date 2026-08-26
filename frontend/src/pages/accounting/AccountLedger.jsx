@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
+import { exportCsv } from '../../utils/exportCsv.js'
 import Breadcrumb from '../../components/Breadcrumb.jsx'
 import DataTable from '../../components/DataTable.jsx'
 import Loader from '../../components/Loader.jsx'
@@ -38,7 +39,25 @@ export default function AccountLedger() {
         <h1>{data.account.name}
           <span className="count"> · {data.account.subMaster}</span>
         </h1>
-        <Link className="btn outline" to="/accounting/accounts">Back</Link>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {data.lines.length > 0 && (
+            <button
+              type="button"
+              className="btn outline"
+              onClick={() => exportCsv(`ledger-${data.account.name}`, [
+                { label: 'Date', key: 'date' },
+                { label: 'Narration', key: 'narration' },
+                { label: 'Source', key: 'referenceType' },
+                { label: 'Debit', key: 'debit' },
+                { label: 'Credit', key: 'credit' },
+                { label: 'Balance', key: 'balance' },
+              ], data.lines)}
+            >
+              Excel
+            </button>
+          )}
+          <Link className="btn outline" to="/accounting/accounts">Back</Link>
+        </div>
       </div>
       <DataTable columns={columns} rows={data.lines} emptyMessage="No postings on this account yet." />
     </div>

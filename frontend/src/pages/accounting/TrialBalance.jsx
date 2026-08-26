@@ -48,6 +48,7 @@ export default function TrialBalance() {
             {data.balanced ? 'Balanced' : 'Out of balance'}
           </span>
           <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+          <button type="button" className="btn outline sm" onClick={() => window.print()}>Print</button>
         </div>
       </div>
       <DataTable columns={columns} rows={data.rows} />

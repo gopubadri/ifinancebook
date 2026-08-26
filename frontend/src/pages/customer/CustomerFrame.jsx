@@ -11,11 +11,14 @@ export default function CustomerFrame() {
   const [notFound, setNotFound] = useState(false)
 
   const load = useCallback(async () => {
-    setCustomer(null)
-    setNotFound(false)
     const data = await api.getCustomerById(id)
-    if (!data) setNotFound(true)
-    else setCustomer(data)
+    if (!data) {
+      setNotFound(true)
+      setCustomer(null)
+    } else {
+      setNotFound(false)
+      setCustomer(data)
+    }
   }, [id])
 
   useEffect(() => {

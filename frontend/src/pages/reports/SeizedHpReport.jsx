@@ -43,6 +43,7 @@ export default function SeizedHpReport() {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <span style={{ fontSize: 13, color: 'var(--muted)' }}>{data.count} account(s)</span>
           <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+          <button type="button" className="btn outline sm" onClick={() => window.print()}>Print</button>
         </div>
       </div>
 

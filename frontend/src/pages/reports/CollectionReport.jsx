@@ -55,10 +55,13 @@ export default function CollectionReport() {
               Excel
             </button>
           )}
+          {data && (
+            <button type="button" className="btn outline sm" onClick={() => window.print()}>Print</button>
+          )}
         </div>
       </div>
 
-      <div className="panel" style={{ marginBottom: 12 }}>
+      <div className="panel no-print" style={{ marginBottom: 12 }}>
         <div className="panel-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
           <label style={{ fontSize: 12.5 }}>
             From

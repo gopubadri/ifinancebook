@@ -46,6 +46,7 @@ export default function OdReport() {
             As of {data.asOf} · rate {data.odRatePerDay}% / day · {data.count} overdue EMI(s)
           </span>
           <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
+          <button type="button" className="btn outline sm" onClick={() => window.print()}>Print</button>
         </div>
       </div>
 
