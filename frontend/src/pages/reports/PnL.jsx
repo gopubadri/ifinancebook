@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
 import { exportCsv } from '../../utils/exportCsv.js'
@@ -6,13 +7,16 @@ import Breadcrumb from '../../components/Breadcrumb.jsx'
 import Loader from '../../components/Loader.jsx'
 
 export default function PnL() {
+  const [params] = useSearchParams()
+  const preset = params.get('preset') || ''
   const [data, setData] = useState(null)
 
   useEffect(() => {
     let alive = true
-    api.getPnl().then((d) => { if (alive) setData(d) })
+    setData(null)
+    api.getPnl({ preset: preset || undefined }).then((d) => { if (alive) setData(d) })
     return () => { alive = false }
-  }, [])
+  }, [preset])
 
   if (!data) return <Loader label="Rolling up income & expense accounts..." />
 
@@ -55,8 +59,10 @@ export default function PnL() {
     <div>
       <Breadcrumb items={[{ label: 'Dashboard', to: '/dashboard' }, { label: 'Reports', to: '/reports' }, { label: 'P & L Report' }]} />
       <div className="page-header">
-        <h1>P&amp;L Report
-          <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>From ledger</span>
+        <h1>{data.title || 'P&L Report'}
+          <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>
+            {data.preset === 'month' ? 'This month' : data.preset === 'trading' ? 'Trading heads' : data.preset === 'preview' ? 'Excludes opening' : 'From ledger'}
+          </span>
         </h1>
         <button type="button" className="btn outline sm" onClick={onExport}>Excel</button>
       </div>

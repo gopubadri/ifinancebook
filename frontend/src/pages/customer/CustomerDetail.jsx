@@ -21,9 +21,20 @@ export default function CustomerDetail() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [rebuilding, setRebuilding] = useState(false)
+  const [scheduleForm, setScheduleForm] = useState({
+    emiAmount: customer.emiAmount,
+    emiPeriod: customer.emiPeriod,
+    emiDate: customer.emiDate || '',
+  })
 
   useEffect(() => {
     setForm(customer)
+    setScheduleForm({
+      emiAmount: customer.emiAmount,
+      emiPeriod: customer.emiPeriod,
+      emiDate: customer.emiDate || '',
+    })
   }, [customer])
 
   function set(field, value) {
@@ -56,7 +67,7 @@ export default function CustomerDetail() {
       <form onSubmit={submit}>
         <Panel title="Vehicle Details" defaultOpen>
           <div className="field-grid">
-            <div className="field"><label>HP #</label><input value={form.hpNo} readOnly /></div>
+            <div className="field"><label>HP #</label><input value={form.hpNo || ''} onChange={(e) => set('hpNo', e.target.value)} /></div>
             <div className="field"><label>Reg. No</label><input value={form.regNo || ''} onChange={(e) => set('regNo', e.target.value)} /></div>
             <div className="field"><label>Makers #</label><input value={form.makersNo || ''} onChange={(e) => set('makersNo', e.target.value)} /></div>
             <div className="field"><label>Model</label><input value={form.model || ''} onChange={(e) => set('model', e.target.value)} /></div>
@@ -90,6 +101,10 @@ export default function CustomerDetail() {
               <input type="checkbox" style={{ width: 'auto' }} checked={!!form.cb} onChange={(e) => set('cb', e.target.checked)} />
               <label style={{ margin: 0 }}>C-Book received</label>
             </div>
+            <div className="field"><label>Insurance expiry</label><input type="date" value={form.insuranceExpiry || ''} onChange={(e) => set('insuranceExpiry', e.target.value)} /></div>
+            <div className="field"><label>Tax expiry</label><input type="date" value={form.taxExpiry || ''} onChange={(e) => set('taxExpiry', e.target.value)} /></div>
+            <div className="field"><label>Pollution expiry</label><input type="date" value={form.pollutionExpiry || ''} onChange={(e) => set('pollutionExpiry', e.target.value)} /></div>
+            <div className="field"><label>RTA token date</label><input type="date" value={form.rtaTokenDate || ''} onChange={(e) => set('rtaTokenDate', e.target.value)} /></div>
           </div>
         </Panel>
 
@@ -97,6 +112,10 @@ export default function CustomerDetail() {
           <div className="field-grid">
             <div className="field"><label>EMI Period (months)</label><input value={form.emiPeriod} readOnly /></div>
             <div className="field"><label>EMI Amount</label><input value={form.emiAmount} readOnly /></div>
+            <div className="field" style={{ gridColumn: '1 / -1' }}>
+              <label>Seized notes</label>
+              <input value={form.seizedNotes || ''} onChange={(e) => set('seizedNotes', e.target.value)} />
+            </div>
             <div className="field"><label>Name</label><input value={form.name || ''} onChange={(e) => set('name', e.target.value)} /></div>
             <div className="field"><label>Village</label><input value={form.village || ''} onChange={(e) => set('village', e.target.value)} /></div>
             <div className="field"><label>Street</label><input value={form.street || ''} onChange={(e) => set('street', e.target.value)} /></div>
@@ -105,6 +124,48 @@ export default function CustomerDetail() {
             <div className="field"><label>Mobile</label><input value={form.mobile || ''} onChange={(e) => set('mobile', e.target.value)} /></div>
             <div className="field"><label>Alternate Mobile</label><input value={form.alternateMobile || ''} onChange={(e) => set('alternateMobile', e.target.value)} /></div>
           </div>
+        </Panel>
+
+        <Panel title="Rebuild EMI schedule">
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 0 }}>
+            Uses Settings → EMI frequency. Allowed only when this finance has no receipts.
+          </p>
+          <div className="field-grid">
+            <div className="field">
+              <label>EMI amount</label>
+              <input type="number" value={scheduleForm.emiAmount} onChange={(e) => setScheduleForm((f) => ({ ...f, emiAmount: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Period</label>
+              <input type="number" value={scheduleForm.emiPeriod} onChange={(e) => setScheduleForm((f) => ({ ...f, emiPeriod: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>First due date</label>
+              <input type="date" value={scheduleForm.emiDate || ''} onChange={(e) => setScheduleForm((f) => ({ ...f, emiDate: e.target.value }))} />
+            </div>
+          </div>
+          <button
+            className="btn outline"
+            type="button"
+            disabled={rebuilding}
+            onClick={async () => {
+              setRebuilding(true)
+              setError('')
+              setMessage('')
+              try {
+                const updated = await api.rebuildSchedule(customer.id, scheduleForm)
+                setForm(updated)
+                setMessage('Schedule rebuilt.')
+                if (refreshCustomer) await refreshCustomer()
+              } catch (err) {
+                setError(err.message || 'Could not rebuild the schedule.')
+              } finally {
+                setRebuilding(false)
+              }
+            }}
+          >
+            {rebuilding ? 'Rebuilding...' : 'Rebuild schedule'}
+          </button>
         </Panel>
 
         <Panel title="Communications">

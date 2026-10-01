@@ -33,6 +33,9 @@ async function request(path, options = {}) {
     throw new Error(data?.error || 'Please log in again')
   }
 
+  if (res.status === 502 || res.status === 503 || res.status === 504) {
+    throw new Error('API not running. Start backend: npm run dev:backend')
+  }
   if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
   return data
 }
@@ -49,9 +52,10 @@ export function getDashboardStats() {
   return request('/dashboard')
 }
 
-export function getCustomers(q, { page = 1, limit = 20 } = {}) {
+export function getCustomers(q, { page = 1, limit = 20, export: exporting = false } = {}) {
   const p = new URLSearchParams({ page, limit })
   if (q) p.set('q', q)
+  if (exporting) p.set('export', '1')
   return request('/customers?' + p)
 }
 
@@ -115,6 +119,34 @@ export function createUser(payload) {
   return request('/users', { method: 'POST', body: JSON.stringify(payload) })
 }
 
+export function resetUserPassword(id, password) {
+  return request(`/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) })
+}
+
+export function changePassword(payload) {
+  return request('/auth/password', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function getStaff() {
+  return request('/staff')
+}
+
+export function getAudit() {
+  return request('/audit')
+}
+
+export function voidReceipt(customerId, receiptNo) {
+  return request(`/customers/${customerId}/receipts/${receiptNo}/void`, { method: 'POST', body: '{}' })
+}
+
+export function repayHandloan(customerId, hlId, payload) {
+  return request(`/customers/${customerId}/handloans/${hlId}/repay`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function rebuildSchedule(customerId, payload) {
+  return request(`/customers/${customerId}/rebuild-schedule`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
 export function getBikePurchases() {
   return request('/consultancy')
 }
@@ -135,14 +167,26 @@ export function createCustomerHandloan(id, payload) {
   return request(`/customers/${id}/handloans`, { method: 'POST', body: JSON.stringify(payload) })
 }
 
-export function getGenericModule(key, { q = '', page = 1, limit = 20 } = {}) {
+export function getGenericModule(key, { q = '', page = 1, limit = 20, export: exporting = false } = {}) {
   const p = new URLSearchParams({ page, limit })
   if (q) p.set('q', q)
+  if (exporting) p.set('export', '1')
   return request(`/modules/${encodeURIComponent(key)}?${p}`)
 }
 
 export function createModuleRow(key, payload) {
   return request(`/modules/${encodeURIComponent(key)}/rows`, { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function updateModuleRow(key, id, payload) {
+  return request(`/modules/${encodeURIComponent(key)}/rows/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteModuleRow(key, id) {
+  return request(`/modules/${encodeURIComponent(key)}/rows/${id}`, { method: 'DELETE' })
 }
 
 export function getReportMenu() {
@@ -153,8 +197,21 @@ export function getBalanceSheet() {
   return request('/reports/balance-sheet')
 }
 
-export function getPnl() {
-  return request('/reports/pnl')
+export function getPnl({ preset, from, to } = {}) {
+  const p = new URLSearchParams()
+  if (preset) p.set('preset', preset)
+  if (from) p.set('from', from)
+  if (to) p.set('to', to)
+  const q = p.toString()
+  return request('/reports/pnl' + (q ? `?${q}` : ''))
+}
+
+export function createSubMaster(payload) {
+  return request('/accounting/sub-masters', { method: 'POST', body: JSON.stringify(payload) })
+}
+
+export function postOpening(payload) {
+  return request('/accounting/opening', { method: 'POST', body: JSON.stringify(payload) })
 }
 
 export function getAccounts() {
@@ -173,8 +230,9 @@ export function getMasters() {
   return request('/accounting/masters')
 }
 
-export function getJournals() {
-  return request('/accounting/journals')
+export function getJournals({ page = 1, limit = 50 } = {}) {
+  const p = new URLSearchParams({ page, limit })
+  return request('/accounting/journals?' + p)
 }
 
 export function getJournal(id) {
@@ -200,8 +258,19 @@ export function getAccountLedger(id) {
   return request(`/accounting/accounts/${id}/ledger`)
 }
 
-export function getDayReport() {
-  return request('/reports/day-report')
+export function getDayReport(date) {
+  const q = date ? `?date=${encodeURIComponent(date)}` : ''
+  return request('/reports/day-report' + q)
+}
+
+export function getLineReport({ view, type, village, asOf } = {}) {
+  const q = new URLSearchParams()
+  if (view) q.set('view', view)
+  if (type) q.set('type', type)
+  if (village) q.set('village', village)
+  if (asOf) q.set('asOf', asOf)
+  const qs = q.toString()
+  return request(`/reports/line${qs ? `?${qs}` : ''}`)
 }
 
 export function getClosedHpReport() {
@@ -222,6 +291,15 @@ export function getCollectionReport({ from, to } = {}) {
   if (to) q.set('to', to)
   const qs = q.toString()
   return request(`/reports/collection${qs ? `?${qs}` : ''}`)
+}
+
+export function getSpecialReport(key, { from, to, asOf } = {}) {
+  const q = new URLSearchParams()
+  if (from) q.set('from', from)
+  if (to) q.set('to', to)
+  if (asOf) q.set('asOf', asOf)
+  const qs = q.toString()
+  return request(`/reports/special/${encodeURIComponent(key)}${qs ? `?${qs}` : ''}`)
 }
 
 export function getChartsData() {

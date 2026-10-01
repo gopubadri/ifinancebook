@@ -1,10 +1,17 @@
 import { query } from '../db.js'
+import { getSettingsData, calcOdInterest } from '../utils/settings.js'
 
-/** Recompute dashboard_stats from live Phase-1 + Phase-2 tables. */
+/** Recompute dashboard_stats from the same live tables the dashboard folders use. */
 export async function refreshDashboardStats(executor = { query }) {
-  // Sequential queries so this works inside a transaction client (pg cannot pipeline on one client).
-  const receipts = await executor.query(`SELECT COALESCE(SUM(amount), 0) AS emi, COALESCE(SUM(ta), 0) AS ta FROM receipts`)
-  const expenses = await executor.query(`
+  const settings = await getSettingsData(executor).catch(() => ({}))
+  const odRate = Number(settings.odInterest ?? 0.1)
+  const today = new Date().toISOString().slice(0, 10)
+
+  const receipts = await executor.query(
+    `SELECT COALESCE(SUM(ta), 0) AS ta, COALESCE(SUM(total), 0) AS collected
+     FROM receipts`
+  )
+  const bills = await executor.query(`
       SELECT
         COALESCE(SUM(CASE WHEN bill_type = 'Income' THEN amount ELSE 0 END), 0) AS income,
         COALESCE(SUM(CASE WHEN bill_type = 'Expense' THEN amount ELSE 0 END), 0) AS expenses
@@ -12,23 +19,35 @@ export async function refreshDashboardStats(executor = { query }) {
     `).catch(async () => ({
     rows: [{ income: 0, expenses: 0 }],
   }))
-  const handloans = await executor.query(`
-      SELECT
-        COALESCE((SELECT SUM(balance) FROM handloan_accounts), 0)
-        + COALESCE((SELECT SUM(balance) FROM customer_handloans WHERE status = 'open'), 0)
-        AS hl
-    `).catch(async () => ({ rows: [{ hl: 0 }] }))
-  const overdue = await executor.query(`
-      SELECT COALESCE(SUM(balance), 0) AS od
-      FROM emi_schedules
-      WHERE status <> 'paid' AND due_date < CURRENT_DATE
-    `)
+  // Handloans folder lists handloan_accounts (customer HLs are mirrored there).
+  const hlOutstanding = await executor.query(
+    `SELECT COALESCE(SUM(balance), 0) AS hl FROM handloan_accounts`
+  ).catch(async () => ({ rows: [{ hl: 0 }] }))
+  const overdue = await executor.query(
+    `SELECT e.due_date, e.balance
+     FROM emi_schedules e
+     JOIN customers c ON c.id = e.customer_id
+     WHERE e.status <> 'paid'
+       AND e.due_date < $1::date
+       AND c.closed = 'NO'`,
+    [today]
+  ).catch(async () => ({ rows: [] }))
   const closed = await executor.query(`SELECT COUNT(*)::int AS closed FROM customers WHERE closed = 'YES'`)
 
-  const emiCollection = Number(receipts.rows[0].emi || 0)
+  const emiCollection = Number(receipts.rows[0].collected || 0)
   const taIncome = Number(receipts.rows[0].ta || 0)
-  const moduleIncome = Number(expenses.rows[0].income || 0)
-  const moduleExpenses = Number(expenses.rows[0].expenses || 0)
+  const income = Number(bills.rows[0].income || 0) + taIncome
+  const expenses = Number(bills.rows[0].expenses || 0)
+  const hlCollection = Number(hlOutstanding.rows[0].hl || 0)
+
+  let odCollection = 0
+  for (const row of overdue.rows || []) {
+    const balance = Number(row.balance || 0)
+    const dueDate = row.due_date ? String(row.due_date).slice(0, 10) : today
+    const od = calcOdInterest(balance, dueDate, odRate)
+    odCollection += balance + od.interest
+  }
+  odCollection = Math.round(odCollection * 100) / 100
 
   await executor.query(
     `INSERT INTO dashboard_stats (id, income, expenses, emi_collection, hl_collection, od_collection, closed_hp)
@@ -41,11 +60,11 @@ export async function refreshDashboardStats(executor = { query }) {
        od_collection = EXCLUDED.od_collection,
        closed_hp = EXCLUDED.closed_hp`,
     [
-      moduleIncome + taIncome,
-      moduleExpenses,
+      income,
+      expenses,
       emiCollection,
-      Number(handloans.rows[0].hl || 0),
-      Number(overdue.rows[0].od || 0),
+      hlCollection,
+      odCollection,
       Number(closed.rows[0].closed || 0),
     ]
   )

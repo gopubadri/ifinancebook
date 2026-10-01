@@ -9,6 +9,7 @@ import miscRoutes from './routes/misc.js'
 import txRoutes from './routes/transactions.js'
 import accountingRoutes from './routes/accounting.js'
 import { requireAuth } from './middleware/auth.js'
+import { ensureOfficeSchema } from './utils/office.js'
 
 dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../.env') })
 
@@ -31,4 +32,14 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Server error' })
 })
 
-app.listen(port, () => console.log(`API on http://localhost:${port}`))
+ensureOfficeSchema().catch((err) => console.error('Office schema ensure failed:', err.message))
+
+const server = app.listen(port, () => console.log(`API on http://localhost:${port}`))
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${port} is already in use. Stop the other process or set PORT in .env.`)
+    process.exit(1)
+  }
+  console.error(err)
+  process.exit(1)
+})

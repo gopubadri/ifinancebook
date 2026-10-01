@@ -8,12 +8,40 @@ import {
   getPnlFromLedger,
   getAccountLedger,
 } from '../services/ledger.js'
+import { requireRole } from '../middleware/auth.js'
+import { parsePagination, pageResult } from '../utils/pagination.js'
 
 const router = Router()
+
+router.use(requireRole('ADMIN', 'CLERK'))
 
 router.get('/masters', async (_req, res) => {
   const { rows } = await query(`SELECT * FROM acc_masters ORDER BY sort_order, id`)
   res.json(rows)
+})
+
+router.post('/sub-masters', async (req, res) => {
+  const name = String(req.body?.name || '').trim().toUpperCase()
+  const masterId = Number(req.body?.masterId)
+  const normalBalance = req.body?.normalBalance === 'credit' ? 'credit' : 'debit'
+  const statement = req.body?.statement === 'pnl' ? 'pnl' : 'balance_sheet'
+  if (!name || !masterId) return res.status(400).json({ error: 'Name and master are required.' })
+  try {
+    const { rows } = await query(
+      `INSERT INTO acc_sub_masters (name, master_id, normal_balance, statement)
+       VALUES ($1,$2,$3,$4) RETURNING *`,
+      [name, masterId, normalBalance, statement]
+    )
+    res.status(201).json({
+      id: rows[0].id,
+      name: rows[0].name,
+      masterId: rows[0].master_id,
+      normalBalance: rows[0].normal_balance,
+      statement: rows[0].statement,
+    })
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
 })
 
 router.get('/sub-masters', async (_req, res) => {
@@ -70,7 +98,9 @@ router.get('/accounts/:id/ledger', async (req, res) => {
   res.json(data)
 })
 
-router.get('/journals', async (_req, res) => {
+router.get('/journals', async (req, res) => {
+  const { page, limit, offset } = parsePagination(req.query, { defaultLimit: 50, maxLimit: 200 })
+  const count = await query(`SELECT COUNT(*)::int AS count FROM journal_entries`)
   const { rows } = await query(
     `SELECT je.*,
       (SELECT COALESCE(SUM(debit),0) FROM journal_lines WHERE journal_entry_id = je.id) AS debit,
@@ -78,9 +108,10 @@ router.get('/journals', async (_req, res) => {
       (SELECT COUNT(*) FROM journal_lines WHERE journal_entry_id = je.id) AS line_count
      FROM journal_entries je
      ORDER BY je.entry_date DESC, je.id DESC
-     LIMIT 200`
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
   )
-  res.json(rows.map((r) => ({
+  const items = rows.map((r) => ({
     id: r.id,
     date: r.entry_date instanceof Date ? r.entry_date.toISOString().slice(0, 10) : String(r.entry_date).slice(0, 10),
     narration: r.narration,
@@ -90,7 +121,8 @@ router.get('/journals', async (_req, res) => {
     debit: Number(r.debit),
     credit: Number(r.credit),
     lineCount: Number(r.line_count),
-  })))
+  }))
+  res.json(pageResult(items, count.rows[0].count, page, limit))
 })
 
 router.get('/journals/:id', async (req, res) => {
@@ -196,8 +228,47 @@ router.get('/balance-sheet', async (_req, res) => {
   res.json(await getBalanceSheetFromLedger())
 })
 
-router.get('/pnl', async (_req, res) => {
-  res.json(await getPnlFromLedger())
+router.get('/pnl', async (req, res) => {
+  res.json(await getPnlFromLedger({
+    from: req.query.from || null,
+    to: req.query.to || null,
+    preset: req.query.preset || null,
+  }))
+})
+
+router.post('/opening', async (req, res) => {
+  const accountId = Number(req.body?.accountId)
+  const contraAccountId = Number(req.body?.contraAccountId)
+  const amount = Number(req.body?.amount)
+  const side = req.body?.side === 'credit' ? 'credit' : 'debit'
+  if (!accountId || !contraAccountId || accountId === contraAccountId) {
+    return res.status(400).json({ error: 'Pick two different accounts.' })
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Amount must be greater than 0.' })
+  }
+  const lines = side === 'credit'
+    ? [
+        { accountId: contraAccountId, debit: amount, credit: 0 },
+        { accountId, debit: 0, credit: amount },
+      ]
+    : [
+        { accountId, debit: amount, credit: 0 },
+        { accountId: contraAccountId, debit: 0, credit: amount },
+      ]
+  try {
+    const result = await postJournal({
+      entryDate: req.body?.entryDate || new Date().toISOString().slice(0, 10),
+      narration: req.body?.narration || 'Opening balance',
+      referenceType: 'OPENING',
+      referenceId: `OPENING-${accountId}-${Date.now()}`,
+      createdBy: req.user?.name || null,
+      lines,
+    })
+    res.status(201).json(result)
+  } catch (err) {
+    res.status(400).json({ error: err.message })
+  }
 })
 
 export default router

@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import * as api from '../../api/api.js'
+import { useAuth } from '../../context/AuthContext.jsx'
 import { inr } from '../../utils/format.js'
 import Loader from '../../components/Loader.jsx'
+
+const STAT_TILES = [
+  { key: 'income', label: 'Income', money: true, to: '/reports/pnl' },
+  { key: 'expenses', label: 'Expenses', money: true, to: '/module/income-expense-transactions' },
+  { key: 'emiCollection', label: 'EMI Collection', money: true, to: '/reports/collection?all=1' },
+  { key: 'hlCollection', label: 'HP HL Collection', money: true, to: '/module/handloans-new' },
+  { key: 'odCollection', label: 'OD Collection', money: true, to: '/reports/od' },
+  { key: 'closedHp', label: "Closed HP's", money: false, to: '/reports/closed-hp' },
+]
 
 const MODULES = [
   { icon: '?', title: "Support", desc: 'Details of the software, contact & payment info', to: '/support' },
@@ -29,8 +39,16 @@ const MODULES = [
 ]
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const [stats, setStats] = useState(null)
   const [error, setError] = useState('')
+  const isAdmin = user?.role === 'ADMIN'
+  const canAccounts = user?.role === 'ADMIN' || user?.role === 'CLERK'
+  const modules = MODULES.filter((m) => {
+    if (m.to === '/settings' || m.to === '/users') return isAdmin
+    if (m.to.startsWith('/accounting')) return canAccounts
+    return true
+  })
 
   useEffect(() => {
     let alive = true
@@ -47,35 +65,19 @@ export default function Dashboard() {
         <Loader label="Fetching dashboard stats..." />
       ) : stats ? (
         <div className="stat-bar">
-          <div className="stat-cell">
-            <div className="stat-label">Income</div>
-            <div className="stat-value">₹{inr(stats.income)}</div>
-          </div>
-          <div className="stat-cell">
-            <div className="stat-label">Expenses</div>
-            <div className="stat-value">₹{inr(stats.expenses)}</div>
-          </div>
-          <Link to="/reports/collection" className="stat-cell">
-            <div className="stat-label">EMI Collection</div>
-            <div className="stat-value">₹{inr(stats.emiCollection)}</div>
-          </Link>
-          <div className="stat-cell">
-            <div className="stat-label">HP HL Collection</div>
-            <div className="stat-value">₹{inr(stats.hlCollection)}</div>
-          </div>
-          <div className="stat-cell">
-            <div className="stat-label">OD Collection</div>
-            <div className="stat-value">₹{inr(stats.odCollection)}</div>
-          </div>
-          <Link to="/reports/closed-hp" className="stat-cell">
-            <div className="stat-label">Closed HP's</div>
-            <div className="stat-value">{stats.closedHp}</div>
-          </Link>
+          {STAT_TILES.map((tile) => (
+            <Link key={tile.key} to={tile.to} className="stat-cell">
+              <div className="stat-label">{tile.label}</div>
+              <div className="stat-value">
+                {tile.money ? `₹${inr(stats[tile.key])}` : stats[tile.key]}
+              </div>
+            </Link>
+          ))}
         </div>
       ) : null}
 
       <div className="module-grid">
-        {MODULES.map((m) => (
+        {modules.map((m) => (
           <Link key={m.title} to={m.to} className="module-card">
             <div className="module-icon">{m.icon}</div>
             <div>

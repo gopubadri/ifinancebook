@@ -5,9 +5,10 @@ export default defineConfig(({ mode }) => ({
   plugins: [react()],
   base: mode === 'production' ? '/ifinancebook/' : '/',
   server: {
+    host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:4000', changeOrigin: true },
+      '/api': { target: 'http://127.0.0.1:4000', changeOrigin: true },
     },
   },
 }))

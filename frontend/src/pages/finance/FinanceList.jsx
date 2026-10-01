@@ -19,6 +19,7 @@ export default function FinanceList() {
   const [searchInput, setSearchInput] = useState(q)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     setSearchInput(q)
@@ -80,21 +81,27 @@ export default function FinanceList() {
             <button
               type="button"
               className="btn outline"
-              onClick={() => exportCsv(q ? `finances-${q}` : 'finances', [
-                { label: 'SNo', key: 'sno' },
-                { label: 'HP No', key: 'hpNo' },
-                { label: 'Name', key: 'name' },
-                { label: 'Mobile', key: 'mobile' },
-                { label: 'Reg No', key: 'regNo' },
-                { label: 'Village', key: 'village' },
-                { label: 'EMI Period', key: 'emiPeriod' },
-                { label: 'EMI Amount', key: 'emiAmount' },
-              ], data.items.map((r, i) => ({
-                ...r,
-                sno: ((data.page || page) - 1) * PAGE_SIZE + i + 1,
-              })))}
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true)
+                try {
+                  const all = await api.getCustomers(q, { page: 1, limit: 5000, export: true })
+                  exportCsv(q ? `finances-${q}` : 'finances', [
+                    { label: 'SNo', key: 'sno' },
+                    { label: 'HP No', key: 'hpNo' },
+                    { label: 'Name', key: 'name' },
+                    { label: 'Mobile', key: 'mobile' },
+                    { label: 'Reg No', key: 'regNo' },
+                    { label: 'Village', key: 'village' },
+                    { label: 'EMI Period', key: 'emiPeriod' },
+                    { label: 'EMI Amount', key: 'emiAmount' },
+                  ], (all.items || []).map((r, i) => ({ ...r, sno: i + 1 })))
+                } finally {
+                  setExporting(false)
+                }
+              }}
             >
-              Excel
+              {exporting ? 'Exporting…' : 'Excel'}
             </button>
           )}
           <Link to="/finance/new" className="btn brass">+ New Finance</Link>

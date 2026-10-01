@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedLayout } from './components/Layout.jsx'
+import { useAuth } from './context/AuthContext.jsx'
 
 // auth
 import Login from './pages/auth/Login.jsx'
@@ -32,6 +33,8 @@ import ClosedHpReport from './pages/reports/ClosedHpReport.jsx'
 import SeizedHpReport from './pages/reports/SeizedHpReport.jsx'
 import OdReport from './pages/reports/OdReport.jsx'
 import CollectionReport from './pages/reports/CollectionReport.jsx'
+import LineReport from './pages/reports/LineReport.jsx'
+import SpecialReport from './pages/reports/SpecialReport.jsx'
 
 // accounting
 import ChartOfAccounts from './pages/accounting/ChartOfAccounts.jsx'
@@ -45,6 +48,14 @@ import TrialBalance from './pages/accounting/TrialBalance.jsx'
 import Users from './pages/admin/Users.jsx'
 import Settings from './pages/admin/Settings.jsx'
 import Support from './pages/admin/Support.jsx'
+import Account from './pages/admin/Account.jsx'
+import AuditLog from './pages/admin/AuditLog.jsx'
+
+function RoleRoute({ allow, children }) {
+  const { user } = useAuth()
+  if (!allow.includes(user?.role)) return <Navigate to="/dashboard" replace />
+  return children
+}
 
 export default function App() {
   return (
@@ -80,20 +91,24 @@ export default function App() {
         <Route path="/reports/seized-hp" element={<SeizedHpReport />} />
         <Route path="/reports/od" element={<OdReport />} />
         <Route path="/reports/collection" element={<CollectionReport />} />
+        <Route path="/reports/line" element={<LineReport />} />
+        <Route path="/reports/special/:key" element={<SpecialReport />} />
         <Route path="/reports/balance-sheet" element={<BalanceSheet />} />
         <Route path="/reports/pnl" element={<PnL />} />
-        <Route path="/reports/trial-balance" element={<TrialBalance />} />
+        <Route path="/reports/trial-balance" element={<RoleRoute allow={['ADMIN', 'CLERK']}><TrialBalance /></RoleRoute>} />
         <Route path="/charts" element={<Charts />} />
 
-        <Route path="/accounting/accounts" element={<ChartOfAccounts />} />
-        <Route path="/accounting/accounts/:id" element={<AccountLedger />} />
-        <Route path="/accounting/journals" element={<Journals />} />
-        <Route path="/accounting/journals/:id" element={<JournalDetail />} />
-        <Route path="/accounting/sub-masters" element={<SubMastersPage />} />
-        <Route path="/accounting/trial-balance" element={<TrialBalance />} />
+        <Route path="/accounting/accounts" element={<RoleRoute allow={['ADMIN', 'CLERK']}><ChartOfAccounts /></RoleRoute>} />
+        <Route path="/accounting/accounts/:id" element={<RoleRoute allow={['ADMIN', 'CLERK']}><AccountLedger /></RoleRoute>} />
+        <Route path="/accounting/journals" element={<RoleRoute allow={['ADMIN', 'CLERK']}><Journals /></RoleRoute>} />
+        <Route path="/accounting/journals/:id" element={<RoleRoute allow={['ADMIN', 'CLERK']}><JournalDetail /></RoleRoute>} />
+        <Route path="/accounting/sub-masters" element={<RoleRoute allow={['ADMIN', 'CLERK']}><SubMastersPage /></RoleRoute>} />
+        <Route path="/accounting/trial-balance" element={<RoleRoute allow={['ADMIN', 'CLERK']}><TrialBalance /></RoleRoute>} />
 
-        <Route path="/users" element={<Users />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route path="/users" element={<RoleRoute allow={['ADMIN']}><Users /></RoleRoute>} />
+        <Route path="/settings" element={<RoleRoute allow={['ADMIN']}><Settings /></RoleRoute>} />
+        <Route path="/account" element={<Account />} />
+        <Route path="/audit" element={<RoleRoute allow={['ADMIN']}><AuditLog /></RoleRoute>} />
         <Route path="/support" element={<Support />} />
       </Route>
 

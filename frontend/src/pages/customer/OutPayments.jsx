@@ -36,11 +36,15 @@ export default function OutPayments() {
       setRows(data)
       const enabled = String(settings?.hpOpDueDate || '').toUpperCase() === 'YES'
       setUseDueDate(enabled)
-      if (enabled) {
-        const d = new Date()
-        d.setMonth(d.getMonth() + 1)
-        setForm((f) => ({ ...f, dueDate: d.toISOString().slice(0, 10) }))
-      }
+      setForm((f) => {
+        const next = { ...f, interest: settings?.outPaymentInterest ?? f.interest }
+        if (enabled) {
+          const d = new Date()
+          d.setMonth(d.getMonth() + 1)
+          next.dueDate = d.toISOString().slice(0, 10)
+        }
+        return next
+      })
     })
     return () => { alive = false }
   }, [customer.id])

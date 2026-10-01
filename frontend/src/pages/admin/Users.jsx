@@ -21,6 +21,9 @@ export default function Users() {
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [staff, setStaff] = useState([])
+  const [resetId, setResetId] = useState(null)
+  const [resetPassword, setResetPassword] = useState('')
 
   async function loadUsers() {
     const data = await api.getUsers()
@@ -30,6 +33,7 @@ export default function Users() {
   useEffect(() => {
     let alive = true
     api.getUsers().then((data) => { if (alive) setRows(data) })
+    api.getStaff().then((data) => { if (alive) setStaff(data) }).catch(() => {})
     return () => { alive = false }
   }, [])
 
@@ -60,6 +64,15 @@ export default function Users() {
     { key: 'username', label: 'Username' },
     { key: 'role', label: 'Role' },
     { key: 'date', label: 'Registered' },
+    {
+      key: 'reset',
+      label: '',
+      render: (r) => isAdmin ? (
+        <button type="button" className="btn sm outline" onClick={() => { setResetId(r.id); setResetPassword(''); setError('') }}>
+          Reset password
+        </button>
+      ) : null,
+    },
   ]
 
   return (
@@ -117,6 +130,38 @@ export default function Users() {
         </form>
       )}
 
+      {isAdmin && resetId && (
+        <form
+          className="panel"
+          style={{ marginBottom: 16 }}
+          onSubmit={async (e) => {
+            e.preventDefault()
+            setSaving(true)
+            setError('')
+            try {
+              await api.resetUserPassword(resetId, resetPassword)
+              setResetId(null)
+              setResetPassword('')
+            } catch (err) {
+              setError(err.message || 'Could not reset the password.')
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          <div className="panel-body">
+            <div className="field" style={{ maxWidth: 280 }}>
+              <label>New password</label>
+              <PasswordInput value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} required minLength={6} />
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+              <button className="btn brass" disabled={saving} type="submit">{saving ? 'Saving...' : 'Save password'}</button>
+              <button className="btn outline" type="button" onClick={() => setResetId(null)}>Cancel</button>
+            </div>
+          </div>
+        </form>
+      )}
+
       {!rows ? (
         <Loader label="Fetching users..." />
       ) : (
@@ -127,6 +172,22 @@ export default function Users() {
             ? 'No registered users yet. Use + New User or the Register tab on login.'
             : 'No registered users yet.'}
         />
+      )}
+
+      {staff.length > 0 && (
+        <>
+          <h2 style={{ fontSize: 16, margin: '22px 0 10px' }}>Office staff register</h2>
+          <DataTable
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'mobile', label: 'Mobile' },
+              { key: 'type', label: 'Type' },
+              { key: 'joinedOn', label: 'Joined' },
+            ]}
+            rows={staff}
+          />
+          <p style={{ fontSize: 12.5, color: 'var(--muted)' }}>This register is not a login. Sign-in accounts are listed above.</p>
+        </>
       )}
     </div>
   )

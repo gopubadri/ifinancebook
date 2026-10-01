@@ -9,6 +9,12 @@ export const APP_PAGES = [
   { title: 'Handloans', desc: 'Loans given by note or on trust', to: '/module/handloans-new', keywords: 'handloan hl loan trust' },
   { title: 'Hand Loans Type 2', desc: 'Type 2 handloan accounts', to: '/module/hand-loans', keywords: 'handloan type 2' },
   { title: 'Day Report', desc: 'Daily collections & bills', to: '/reports/day-report', keywords: 'day report collection bill' },
+  { title: 'Line Report', desc: 'Field line / HP demand & overdue', to: '/reports/line?view=all&layout=print&type=1', keywords: 'line report demand overdue village hp' },
+  { title: 'Demand Collection', desc: 'EMI demand vs receipts', to: '/reports/special/demand-collection', keywords: 'demand collection' },
+  { title: 'Delinquency Buckets', desc: 'Overdue ageing 30/60/90', to: '/reports/special/delinquency', keywords: 'delinquency overdue bucket ageing' },
+  { title: 'C Book Report', desc: 'C-book / RC received vs pending', to: '/reports/special/cbook-all', keywords: 'c book rc' },
+  { title: 'HP Interest Report', desc: 'EMI interest billed vs paid', to: '/reports/special/hp-interest', keywords: 'interest hp' },
+  { title: "Customer's Mobiles", desc: 'HP contact list', to: '/reports/special/customer-mobiles', keywords: 'mobile phone contact' },
   { title: 'Reports', desc: 'Finance, line & account reports', to: '/reports', keywords: 'reports catalogue' },
   { title: 'Ledger Reports', desc: 'Trial balance & ledger summaries', to: '/accounting/trial-balance', keywords: 'ledger trial balance' },
   { title: 'Charts', desc: 'Graphical HPs & collection', to: '/charts', keywords: 'charts graph collection' },
@@ -46,9 +52,16 @@ function matchesText(haystack, needle) {
   return String(haystack || '').toLowerCase().includes(needle)
 }
 
-function pageHits(q, limit) {
+function pageVisible(to, role) {
+  if (to === '/users' || to === '/settings') return role === 'ADMIN'
+  if (String(to).startsWith('/accounting')) return role === 'ADMIN' || role === 'CLERK'
+  return true
+}
+
+function pageHits(q, limit, role) {
   const needle = q.toLowerCase()
   return APP_PAGES
+    .filter((p) => pageVisible(p.to, role))
     .filter((p) =>
       matchesText(p.title, needle) ||
       matchesText(p.desc, needle) ||
@@ -110,7 +123,7 @@ async function searchNamedTable({
   }
 }
 
-export async function runGlobalSearch(qRaw, limit = 6) {
+export async function runGlobalSearch(qRaw, limit = 6, role = 'ADMIN') {
   const q = String(qRaw || '').trim()
   if (!q) {
     return {
@@ -129,7 +142,9 @@ export async function runGlobalSearch(qRaw, limit = 6) {
   }
 
   const like = `%${q.toLowerCase()}%`
-  const pages = pageHits(q, limit)
+  const pages = pageHits(q, limit, role)
+  const isAdmin = role === 'ADMIN'
+  const canAccounts = role === 'ADMIN' || role === 'CLERK'
 
   const [
     customers,
@@ -367,13 +382,44 @@ export async function runGlobalSearch(qRaw, limit = 6) {
     ...(generic.total > 0 ? [generic] : []),
   ]
 
+  const userItems = isAdmin
+    ? users.rows.map((r) => {
+        const u = mapAuthUser(r)
+        return {
+          type: 'user',
+          id: u.id,
+          title: u.name,
+          subtitle: `${u.username} · ${u.role}`,
+          to: '/users',
+        }
+      })
+    : []
+  const accountItems = canAccounts
+    ? accounts.rows.map((r) => ({
+        type: 'account',
+        id: r.id,
+        title: r.name,
+        subtitle: [r.code, r.sub_master].filter(Boolean).join(' · '),
+        to: `/accounting/accounts/${r.id}`,
+      }))
+    : []
+  const journalItems = canAccounts
+    ? journals.rows.map((r) => ({
+        type: 'journal',
+        id: r.id,
+        title: r.narration || `Journal #${r.id}`,
+        subtitle: `${r.entry_date instanceof Date ? r.entry_date.toISOString().slice(0, 10) : String(r.entry_date).slice(0, 10)} · ${r.reference_type || ''}`,
+        to: `/accounting/journals/${r.id}`,
+      }))
+    : []
+
   const totals = {
     pages: pages.length,
     customers: custCount.rows[0].count,
     bikes: bikeCount.rows[0].count,
-    users: userCount.rows[0].count,
-    accounts: accountCount.rows[0].count,
-    journals: journalCount.rows[0].count,
+    users: isAdmin ? userCount.rows[0].count : 0,
+    accounts: canAccounts ? accountCount.rows[0].count : 0,
+    journals: canAccounts ? journalCount.rows[0].count : 0,
     modules: modules.reduce((s, m) => s + m.total, 0),
   }
   totals.all = totals.pages + totals.customers + totals.bikes + totals.users
@@ -402,30 +448,9 @@ export async function runGlobalSearch(qRaw, limit = 6) {
         to: '/consultancy',
       }
     }),
-    users: users.rows.map((r) => {
-      const u = mapAuthUser(r)
-      return {
-        type: 'user',
-        id: u.id,
-        title: u.name,
-        subtitle: `${u.username} · ${u.role}`,
-        to: '/users',
-      }
-    }),
-    accounts: accounts.rows.map((r) => ({
-      type: 'account',
-      id: r.id,
-      title: r.name,
-      subtitle: [r.code, r.sub_master].filter(Boolean).join(' · '),
-      to: `/accounting/accounts/${r.id}`,
-    })),
-    journals: journals.rows.map((r) => ({
-      type: 'journal',
-      id: r.id,
-      title: r.narration || `Journal #${r.id}`,
-      subtitle: `${r.entry_date instanceof Date ? r.entry_date.toISOString().slice(0, 10) : String(r.entry_date).slice(0, 10)} · ${r.reference_type || ''}`,
-      to: `/accounting/journals/${r.id}`,
-    })),
+    users: userItems,
+    accounts: accountItems,
+    journals: journalItems,
     modules,
     totals,
   }

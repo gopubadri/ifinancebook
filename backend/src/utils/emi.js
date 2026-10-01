@@ -1,4 +1,11 @@
-export function buildEmiSchedule({ emiAmount, emiPeriod, emiDate }) {
+export function emiFrequencyFromSettings(settings) {
+  const value = String(settings?.emiFrequency || '').toLowerCase()
+  if (value === 'weekly' || value === 'quarterly') return value
+  return 'monthly'
+}
+
+export function buildEmiSchedule({ emiAmount, emiPeriod, emiDate, frequency = 'monthly' }) {
+  const step = emiFrequencyFromSettings({ emiFrequency: frequency })
   const rows = []
   let cumulative = 0
   const principal = Number(emiAmount) * Number(emiPeriod) * 0.85
@@ -6,7 +13,9 @@ export function buildEmiSchedule({ emiAmount, emiPeriod, emiDate }) {
   const start = new Date(emiDate)
   for (let i = 0; i < Number(emiPeriod); i++) {
     const due = new Date(start)
-    due.setMonth(start.getMonth() + i)
+    if (step === 'weekly') due.setDate(start.getDate() + i * 7)
+    else if (step === 'quarterly') due.setMonth(start.getMonth() + i * 3)
+    else due.setMonth(start.getMonth() + i)
     cumulative += Number(emiAmount)
     rows.push({
       sno: i + 1,

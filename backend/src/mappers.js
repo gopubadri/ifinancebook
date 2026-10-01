@@ -39,12 +39,17 @@ export function mapCustomer(row) {
     seized: row.seized,
     closed: row.closed,
     seizedDate: isoDate(row.seized_date),
+    seizedNotes: row.seized_notes || '',
     closedDate: isoDate(row.closed_date),
     city: row.city || '',
     state: row.state || '',
     street: row.street || '',
     alternateMobile: row.alternate_mobile || '',
     createdBy: row.created_by || '',
+    insuranceExpiry: isoDate(row.insurance_expiry) || '',
+    taxExpiry: isoDate(row.tax_expiry) || '',
+    pollutionExpiry: isoDate(row.pollution_expiry) || '',
+    rtaTokenDate: isoDate(row.rta_token_date) || '',
   }
 }
 

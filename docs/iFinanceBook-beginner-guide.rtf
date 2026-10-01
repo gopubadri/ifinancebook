@@ -1,0 +1,46 @@
+{\rtf1\ansi\deff0{\fonttbl{\f0 Calibri;}}{\colortbl;\red26\green58\blue92;}\viewkind4\uc1\f0\fs22\lang16393
+\pard\sb280\sa120\b\fs36 iFinance Books\b0\fs22\par
+\pard\sa120\fs22 A beginner guide: register, log in, and work inside the application\par
+\pard\sa120\fs22 Written for new team members. Explains what the product is, what you can do after signing in, and what the software does behind the scenes.\par
+\pard\sb280\sa120\b\fs22 1. What this project is\b0\fs22\par
+\pard\sa120\fs22 Think of iFinance Books as the office computer system of a vehicle finance shop. People take a two-wheeler on hire-purchase (HP) and pay a monthly EMI. Staff collect money, keep other books, and produce reports.\par
+\pard\sa120\fs22 Technically it is a website (React) talking to a server (Express) that stores data in PostgreSQL.\par
+\pard\sb280\sa120\b\fs22 2. Register and log in\b0\fs22\par
+\pard\sa120\fs22 On the login page you see Sign in and Register.\par
+\pard\li360\sa60\fs22 \bullet  Register: name, username, password, role. Password is hashed. You get a token stored in the browser for 7 days.\par
+\pard\li360\sa60\fs22 \bullet  Log in: username and password. Same token if the password matches.\par
+\pard\sa120\fs22 Demo accounts: admin, clerk, line \u8212? password demo123.\par
+\pard\sa120\fs22 Roles are named but the app looks almost the same for everyone. Register can even create ADMIN. After login you land on the Dashboard.\par
+\pard\sb280\sa120\b\fs22 3. The screen you live in\b0\fs22\par
+\pard\li360\sa60\fs22 \bullet  Navbar: Transactions, Others, Finance's, search, Settings, Log out.\par
+\pard\li360\sa60\fs22 \bullet  Search looks across customers, bikes, accounts, journals, and modules.\par
+\pard\sb280\sa120\b\fs22 4. Dashboard\b0\fs22\par
+\pard\sa120\fs22 Tiles: Income, Expenses, EMI Collection, HP HL Collection (mostly outstanding handloans), OD Collection, Closed HPs. Click a tile or folder to open that area.\par
+\pard\sb280\sa120\b\fs22 5. Finances (the main job)\b0\fs22\par
+\pard\sa120\fs22 Finance list: search HP accounts. New Finance creates a customer, EMI timetable, and an RTA row.\par
+\pard\sa120\fs22 Customer tabs:\par
+\pard\li360\sa60\fs22 \bullet  Overview \u8212? edit customer; seize or close.\par
+\pard\li360\sa60\fs22 \bullet  Receipt \u8212? collect EMI; numbered receipt; pays oldest unpaid EMI first; printable slip.\par
+\pard\li360\sa60\fs22 \bullet  Bills \u8212? receipt history and reprint.\par
+\pard\li360\sa60\fs22 \bullet  EMI Reports / OD's \u8212? schedule and overdue interest (default 0.1 percent per day).\par
+\pard\li360\sa60\fs22 \bullet  Out Payment / Hand Loans \u8212? extra money out or informal loan.\par
+\pard\li360\sa60\fs22 \bullet  STM \u8212? settlement and close. RMD \u8212? reminders. Seized/Closed \u8212? status view.\par
+\pard\sb280\sa120\b\fs22 6. Other books and lists\b0\fs22\par
+\pard\sa120\fs22 Transactions: HandLoans, Consultancy (used bikes), Capitals, Deposits, Cheques, Bank, Chits, Loans, Credits, Investments, Assets, Inc & Exp, Journals.\par
+\pard\sa120\fs22 Others: Income & Expense bills, RTA, All Accounts, Sub Masters, Trial Balance, Agents, Branches. Agents/RTA/Branches are simple lists, not live government systems.\par
+\pard\sb280\sa120\b\fs22 7. Reports and accounting\b0\fs22\par
+\pard\sa120\fs22 Working reports: Day Report, Line Report, Collection, OD, Closed HP, Seized HP, P&L, Balance Sheet, Trial Balance, Charts. Grey names in the catalogue are not built yet.\par
+\pard\sa120\fs22 Accounting: every rupee is debit and credit. Journals can be automatic (receipts) or manual, and can be reversed.\par
+\pard\sb280\sa120\b\fs22 8. Admin\b0\fs22\par
+\pard\sa120\fs22 Users (ADMIN can create), Settings (OD percent, settlement, day-scroll protect, company address), Support (read-only company details).\par
+\pard\sb280\sa120\b\fs22 9. What happens inside (four engines)\b0\fs22\par
+\pard\li360\sa60\fs22 \bullet  EMI engine: monthly due dates when you create a finance.\par
+\pard\li360\sa60\fs22 \bullet  Collection engine: receipt reduces unpaid EMIs, updates bank, posts journal, refreshes dashboard.\par
+\pard\li360\sa60\fs22 \bullet  Overdue engine: interest is calculated when you open OD screens, not stored as its own table.\par
+\pard\li360\sa60\fs22 \bullet  Refresh engine: dashboard tiles and charts are recalculated after many saves.\par
+\pard\sa120\fs22 Flow: Browser -> API with token -> Express on port 4000 -> PostgreSQL.\par
+\pard\sb280\sa120\b\fs22 10. A day in the office\b0\fs22\par
+\pard\li360\sa60\fs22 \bullet  Log in. New Finance. Collect Receipt. Check OD. Seize or STM if needed. Enter expenses. Day Report. Line Report for tomorrow. Journals / P&L for accounts.\par
+\pard\sb280\sa120\b\fs22 11. Not fully built\b0\fs22\par
+\pard\li360\sa60\fs22 \bullet  Many report names are grey. No SMS/email/KYC upload. Roles barely restrict screens. Receipts cannot be voided from the UI.\par
+}

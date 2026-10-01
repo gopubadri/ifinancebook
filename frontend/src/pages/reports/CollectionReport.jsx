@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
 import { exportCsv } from '../../utils/exportCsv.js'
@@ -8,8 +8,10 @@ import Loader from '../../components/Loader.jsx'
 
 export default function CollectionReport() {
   const today = new Date().toISOString().slice(0, 10)
-  const [from, setFrom] = useState(today.slice(0, 8) + '01')
-  const [to, setTo] = useState(today)
+  const [searchParams] = useSearchParams()
+  const allTime = searchParams.get('all') === '1'
+  const [from, setFrom] = useState(allTime ? '' : today.slice(0, 8) + '01')
+  const [to, setTo] = useState(allTime ? '' : today)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 

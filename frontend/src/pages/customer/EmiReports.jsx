@@ -9,11 +9,13 @@ import DataTable from '../../components/DataTable.jsx'
 export default function EmiReports() {
   const { customer } = useOutletContext()
   const [summary, setSummary] = useState(null)
+  const [settings, setSettings] = useState(null)
 
   useEffect(() => {
     let alive = true
     setSummary(null)
     api.getEmiSummary(customer.id).then((data) => { if (alive) setSummary(data) })
+    api.getSettings().then((data) => { if (alive) setSettings(data) }).catch(() => {})
     return () => { alive = false }
   }, [customer.id])
 
@@ -60,6 +62,13 @@ export default function EmiReports() {
           Excel
         </button>
       </div>
+
+      {String(settings?.emiReportCbClr || '').toLowerCase() === 'yes' && (
+        <p style={{ fontSize: 13, marginTop: 0 }}>
+          C-Book: <strong>{customer.cb ? 'Received' : 'Pending'}</strong>
+          {customer.clrDate ? ` · Colour date ${customer.clrDate}` : ''}
+        </p>
+      )}
 
       <div className="summary-grid">
         <div className="summary-cell"><div className="label">Paid Amount</div><div className="value">₹{inr(summary.paidAmount)}</div></div>

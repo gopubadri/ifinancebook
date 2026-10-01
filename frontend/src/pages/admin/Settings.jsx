@@ -45,7 +45,14 @@ export default function Settings() {
         <div className="panel">
           <div className="panel-header">EMI &amp; Interest Rules</div>
           <div className="panel-body field-grid">
-            <div className="field"><label>EMI Frequency</label>{yn('emiFrequency')}</div>
+            <div className="field">
+              <label>EMI Frequency</label>
+              <select value={form.emiFrequency === 'weekly' || form.emiFrequency === 'quarterly' ? form.emiFrequency : 'monthly'} onChange={(e) => set('emiFrequency', e.target.value)}>
+                <option value="monthly">Monthly</option>
+                <option value="weekly">Weekly</option>
+                <option value="quarterly">Quarterly</option>
+              </select>
+            </div>
             <div className="field"><label>Day Scroll Protect</label>{yn('dayScrollProtect')}</div>
             <div className="field"><label>Auto Date</label>{yn('autoDate')}</div>
             <div className="field"><label>Out Payment Interest</label><input type="number" value={form.outPaymentInterest} onChange={(e) => set('outPaymentInterest', e.target.value)} /></div>

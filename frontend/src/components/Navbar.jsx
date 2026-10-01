@@ -101,6 +101,11 @@ export default function Navbar() {
     navigate(to)
   }
 
+  const isAdmin = user?.role === 'ADMIN'
+  const canAccounts = user?.role === 'ADMIN' || user?.role === 'CLERK'
+  const transactionItems = TRANSACTIONS.filter(([, to]) => canAccounts || !to.startsWith('/accounting'))
+  const otherItems = OTHERS.filter(([, to]) => canAccounts || !to.startsWith('/accounting'))
+
   const modules = (results?.modules || [])
     .flatMap((m) => (m.items || []).slice(0, 2))
     .slice(0, 6)
@@ -131,8 +136,8 @@ export default function Navbar() {
         <Link to="/dashboard" className="brand">
           <span className="brand-mark">iF</span> iFinance
         </Link>
-        <Dropdown label="Transactions" items={TRANSACTIONS} />
-        <Dropdown label="Others" items={OTHERS} />
+        <Dropdown label="Transactions" items={transactionItems} />
+        <Dropdown label="Others" items={otherItems} />
         <Link to="/finance" className="nav-item">Finance&apos;s</Link>
 
         <div className="nav-spacer" />
@@ -175,7 +180,9 @@ export default function Navbar() {
           {menuOpen && (
             <div className="nav-dropdown" style={{ right: 0, left: 'auto', minWidth: 160 }}>
               <div style={{ padding: '8px 10px', fontSize: 11.5, color: 'var(--muted)' }}>{user?.role}</div>
-              <Link to="/settings">Settings</Link>
+              <Link to="/account">Account</Link>
+              {isAdmin && <Link to="/settings">Settings</Link>}
+              {isAdmin && <Link to="/audit">Activity</Link>}
               <button onClick={logout}>Log out</button>
             </div>
           )}

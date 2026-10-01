@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { query } from '../db.js'
 import { MODULE_MAP } from '../config/txConfig.js'
 import { refreshAllDerived } from '../services/refresh.js'
+import { applyChequeUpdate } from '../utils/office.js'
 import { postIeBill } from '../services/ledger.js'
 
 const router = Router()
@@ -151,26 +152,13 @@ router.post('/cheques', async (req, res) => {
   res.status(201).json(row)
 })
 router.put('/cheques/:id', async (req, res) => {
-  const b = req.body || {}
-  const { rows } = await query(
-    `UPDATE cheques SET
-      cheque_no = COALESCE($1, cheque_no),
-      description = COALESCE($2, description),
-      cheque_date = COALESCE($3, cheque_date),
-      amount = COALESCE($4, amount),
-      status = COALESCE($5, status)
-     WHERE id = $6 RETURNING *`,
-    [
-      b.cheque || b.chequeNo || null,
-      b.description ?? null,
-      b.date || null,
-      b.amount != null ? n(b.amount) : null,
-      b.status || null,
-      req.params.id,
-    ]
-  )
-  if (!rows[0]) return res.status(404).json({ error: 'Not found' })
-  res.json(mapCheque(rows[0]))
+  try {
+    const row = await applyChequeUpdate(req.params.id, req.body || {})
+    if (!row) return res.status(404).json({ error: 'Not found' })
+    res.json(mapCheque(row))
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message })
+  }
 })
 
 router.get('/chits', async (_req, res) => res.json(await listResource('chits')))
@@ -183,6 +171,7 @@ router.post('/chits', async (req, res) => {
 router.get('/loans', async (_req, res) => res.json(await listResource('loans')))
 router.post('/loans', async (req, res) => {
   const row = await createResource('loans', req.body || {})
+  await refreshAllDerived()
   res.status(201).json(row)
 })
 
@@ -203,12 +192,14 @@ router.post('/investments', async (req, res) => {
 router.get('/credits', async (_req, res) => res.json(await listResource('credits')))
 router.post('/credits', async (req, res) => {
   const row = await createResource('credits', req.body || {})
+  await refreshAllDerived()
   res.status(201).json(row)
 })
 
 router.get('/ie-accounts', async (_req, res) => res.json(await listResource('ie-accounts')))
 router.post('/ie-accounts', async (req, res) => {
   const row = await createResource('ie-accounts', req.body || {})
+  await refreshAllDerived()
   res.status(201).json(row)
 })
 
@@ -223,7 +214,8 @@ router.post('/ie-bills', async (req, res) => {
 async function listResource(resource, filter = {}, options = null) {
   const paginate = options && options.paginate
   const page = paginate ? Math.max(1, Number(options.page) || 1) : 1
-  const limit = paginate ? Math.min(100, Math.max(1, Number(options.limit) || 20)) : null
+  const cap = options?.export ? 5000 : 100
+  const limit = paginate ? Math.min(cap, Math.max(1, Number(options.limit) || 20)) : null
   const offset = paginate ? (page - 1) * limit : 0
   const q = String(options?.q || '').trim().toLowerCase()
   const like = `%${q}%`
@@ -541,6 +533,107 @@ async function updateHandloan(id, body) {
     ]
   )
   return rows[0] ? mapHandloan(rows[0]) : null
+}
+
+async function updateNamed(table, id, body, map = mapNamedBalance) {
+  const { rows } = await query(
+    `UPDATE ${table} SET
+      name = COALESCE($1, name),
+      village = COALESCE($2, village),
+      balance = COALESCE($3, balance)
+     WHERE id = $4 RETURNING *`,
+    [body.name || null, body.village ?? null, body.balance != null ? n(body.balance) : null, id]
+  )
+  return rows[0] ? map(rows[0]) : null
+}
+
+export async function updateResource(resource, id, body = {}) {
+  switch (resource) {
+    case 'handloans':
+      return updateHandloan(id, body)
+    case 'banks': {
+      const { rows } = await query(
+        `UPDATE bank_accounts SET name = COALESCE($1, name), balance = COALESCE($2, balance),
+          account_kind = COALESCE($3, account_kind) WHERE id = $4 RETURNING *`,
+        [body.name || null, body.balance != null ? n(body.balance) : null, body.accountKind || body.accountType || null, id]
+      )
+      return rows[0] ? mapBank(rows[0]) : null
+    }
+    case 'capitals':
+      return updateNamed('capital_accounts', id, body)
+    case 'deposits':
+      return updateNamed('deposit_accounts', id, body)
+    case 'cheques': {
+      const row = await applyChequeUpdate(id, body)
+      return row ? mapCheque(row) : null
+    }
+    case 'chits': {
+      const { rows } = await query(
+        `UPDATE chit_accounts SET name = COALESCE($1, name), balance = COALESCE($2, balance) WHERE id = $3 RETURNING *`,
+        [body.name || null, body.balance != null ? n(body.balance) : null, id]
+      )
+      return rows[0] ? { id: rows[0].id, name: rows[0].name, balance: n(rows[0].balance) } : null
+    }
+    case 'loans':
+      return updateNamed('loan_accounts', id, body)
+    case 'assets':
+      return updateNamed('asset_accounts', id, body)
+    case 'investments':
+      return updateNamed('investment_accounts', id, body)
+    case 'credits':
+      return updateNamed('credit_accounts', id, body)
+    case 'ie-accounts': {
+      const { rows } = await query(
+        `UPDATE ie_accounts SET name = COALESCE($1, name), balance = COALESCE($2, balance) WHERE id = $3 RETURNING *`,
+        [body.name || null, body.balance != null ? n(body.balance) : null, id]
+      )
+      return rows[0] ? { id: rows[0].id, name: rows[0].name, balance: n(rows[0].balance) } : null
+    }
+    case 'ie-bills': {
+      const { rows } = await query(
+        `UPDATE ie_bills SET
+          amount = COALESCE($1, amount),
+          bill_type = COALESCE($2, bill_type),
+          paid_date = COALESCE($3, paid_date),
+          account = COALESCE($4, account),
+          description = COALESCE($5, description)
+         WHERE id = $6 RETURNING *`,
+        [
+          body.amount != null ? n(body.amount) : null,
+          body.type || body.billType || null,
+          body.paidDate || body.date || null,
+          body.account ?? null,
+          body.description ?? null,
+          id,
+        ]
+      )
+      return rows[0] ? mapIeBill(rows[0]) : null
+    }
+    default:
+      return null
+  }
+}
+
+const DELETE_TABLES = {
+  handloans: 'handloan_accounts',
+  banks: 'bank_accounts',
+  capitals: 'capital_accounts',
+  deposits: 'deposit_accounts',
+  cheques: 'cheques',
+  chits: 'chit_accounts',
+  loans: 'loan_accounts',
+  assets: 'asset_accounts',
+  investments: 'investment_accounts',
+  credits: 'credit_accounts',
+  'ie-accounts': 'ie_accounts',
+  'ie-bills': 'ie_bills',
+}
+
+export async function deleteResource(resource, id) {
+  const table = DELETE_TABLES[resource]
+  if (!table) return false
+  const result = await query(`DELETE FROM ${table} WHERE id = $1`, [id])
+  return result.rowCount > 0
 }
 
 export { mapCustomerHl, listResource, createResource }

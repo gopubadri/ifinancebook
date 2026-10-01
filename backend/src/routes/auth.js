@@ -2,9 +2,11 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { query } from '../db.js'
+import { requireAuth } from '../middleware/auth.js'
+import { writeAudit } from '../utils/office.js'
 
 const router = Router()
-const ALLOWED_ROLES = new Set(['ADMIN', 'CLERK', 'LINE EXECUTIVE'])
+const PUBLIC_ROLES = new Set(['CLERK', 'LINE EXECUTIVE'])
 const SYSTEM_USERNAMES = new Set(['admin', 'clerk', 'line'])
 
 function signUser(user) {
@@ -35,7 +37,13 @@ router.post('/register', async (req, res) => {
   const password = String(req.body?.password || '')
   const name = String(req.body?.name || '').trim().toUpperCase()
   const roleRaw = String(req.body?.role || 'CLERK').trim().toUpperCase()
-  const role = ALLOWED_ROLES.has(roleRaw) ? roleRaw : 'CLERK'
+  if (!PUBLIC_ROLES.has(roleRaw)) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Self-registration can only create a Clerk or Line Executive. An admin creates other admins from Users.',
+    })
+  }
+  const role = roleRaw
 
   if (SYSTEM_USERNAMES.has(username)) {
     return res.status(400).json({ ok: false, error: 'That username is reserved.' })
@@ -67,6 +75,29 @@ router.post('/register', async (req, res) => {
   )
 
   return res.status(201).json(signUser(rows[0]))
+})
+
+router.post('/password', requireAuth, async (req, res) => {
+  const currentPassword = String(req.body?.currentPassword || '')
+  const password = String(req.body?.password || '')
+  if (password.length < 6) {
+    return res.status(400).json({ error: 'New password must be at least 6 characters.' })
+  }
+  const { rows } = await query(`SELECT id, password_hash, username FROM auth_users WHERE id = $1`, [req.user.id])
+  const user = rows[0]
+  if (!user) return res.status(404).json({ error: 'User not found' })
+  const match = await bcrypt.compare(currentPassword, user.password_hash)
+  if (!match) return res.status(400).json({ error: 'Current password is wrong.' })
+  const passwordHash = await bcrypt.hash(password, 10)
+  await query(`UPDATE auth_users SET password_hash = $1 WHERE id = $2`, [passwordHash, user.id])
+  await writeAudit({
+    actor: req.user?.name,
+    action: 'password_change',
+    entity: 'user',
+    entityId: user.id,
+    detail: { username: user.username },
+  })
+  res.json({ ok: true })
 })
 
 export default router

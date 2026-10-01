@@ -285,18 +285,83 @@ export async function getBalanceSheetFromLedger() {
   return { assets, liabilities, totalAssets, totalLiabilities }
 }
 
-export async function getPnlFromLedger() {
-  const accounts = await getAccountBalances()
-  const income = accounts
-    .filter((a) => a.statement === 'pnl' && a.normalBalance === 'credit')
-    .map((a) => [a.name, a.balance])
-  const expenses = accounts
-    .filter((a) => a.statement === 'pnl' && a.normalBalance === 'debit')
-    .map((a) => [a.name, a.balance])
+const TRADING_WORDS = ['sale', 'consult', 'agreement', 'purchase', 'stock', 'repair']
 
+export async function getPnlFromLedger({ from = null, to = null, preset = null } = {}) {
+  const presetName = String(preset || '').toLowerCase()
+  const ranged = Boolean(from || to || presetName === 'month' || presetName === 'preview' || presetName === 'trading')
+  if (!ranged) {
+    const accounts = await getAccountBalances()
+    const income = accounts
+      .filter((a) => a.statement === 'pnl' && a.normalBalance === 'credit')
+      .map((a) => [a.name, a.balance])
+    const expenses = accounts
+      .filter((a) => a.statement === 'pnl' && a.normalBalance === 'debit')
+      .map((a) => [a.name, a.balance])
+    const totalIncome = income.reduce((s, [, v]) => s + v, 0)
+    const totalExpenses = expenses.reduce((s, [, v]) => s + v, 0)
+    return {
+      title: 'P&L Report',
+      preset: 'final',
+      income,
+      expenses,
+      totalIncome,
+      totalExpenses,
+      profit: Number((totalIncome - totalExpenses).toFixed(2)),
+    }
+  }
+
+  let rangeFrom = from || null
+  let rangeTo = to || null
+  if (presetName === 'month') {
+    const now = new Date()
+    rangeFrom = rangeFrom || now.toISOString().slice(0, 8) + '01'
+    rangeTo = rangeTo || now.toISOString().slice(0, 10)
+  }
+
+  const { rows } = await query(
+    `SELECT a.name, s.normal_balance,
+            COALESCE(SUM(jl.debit), 0) AS debit,
+            COALESCE(SUM(jl.credit), 0) AS credit
+     FROM acc_accounts a
+     JOIN acc_sub_masters s ON s.id = a.sub_master_id
+     LEFT JOIN journal_lines jl ON jl.account_id = a.id
+     LEFT JOIN journal_entries je ON je.id = jl.journal_entry_id
+       AND ($1::date IS NULL OR je.entry_date >= $1::date)
+       AND ($2::date IS NULL OR je.entry_date <= $2::date)
+       AND ($3::boolean = FALSE OR COALESCE(je.reference_type, '') <> 'OPENING')
+     WHERE s.statement = 'pnl'
+     GROUP BY a.name, s.normal_balance
+     ORDER BY a.name`,
+    [rangeFrom, rangeTo, presetName === 'preview']
+  )
+
+  const trading = presetName === 'trading'
+  const income = []
+  const expenses = []
+  for (const row of rows) {
+    if (trading && !TRADING_WORDS.some((word) => String(row.name).toLowerCase().includes(word))) continue
+    const debit = Number(row.debit)
+    const credit = Number(row.credit)
+    const balance = row.normal_balance === 'credit'
+      ? Math.round((credit - debit) * 100) / 100
+      : Math.round((debit - credit) * 100) / 100
+    if (!balance) continue
+    if (row.normal_balance === 'credit') income.push([row.name, balance])
+    else expenses.push([row.name, balance])
+  }
   const totalIncome = income.reduce((s, [, v]) => s + v, 0)
   const totalExpenses = expenses.reduce((s, [, v]) => s + v, 0)
+  const titles = {
+    month: 'Monthly P&L',
+    trading: 'Trading Account',
+    preview: 'P&L Trail Preview',
+  }
   return {
+    title: titles[presetName] || 'P&L Report',
+    preset: presetName || 'range',
+    from: rangeFrom,
+    to: rangeTo,
     income,
     expenses,
     totalIncome,

@@ -1,7 +1,8 @@
 import { Router } from 'express'
 import { pool, query } from '../db.js'
 import { mapCustomer, mapEmiRow, mapOutPayment } from '../mappers.js'
-import { buildEmiSchedule } from '../utils/emi.js'
+import { buildEmiSchedule, emiFrequencyFromSettings } from '../utils/emi.js'
+import { ensureOfficeSchema, writeAudit } from '../utils/office.js'
 import { refreshAllDerived } from '../services/refresh.js'
 import { postEmiReceipt, postJournal } from '../services/ledger.js'
 import {
@@ -11,6 +12,7 @@ import {
   defaultEntryDate,
 } from '../utils/settings.js'
 import { parsePagination, pageResult } from '../utils/pagination.js'
+import { ensureDayReportDate } from '../utils/dayReport.js'
 
 const router = Router()
 
@@ -84,7 +86,13 @@ router.post('/', async (req, res) => {
       values
     )
 
-    const schedule = buildEmiSchedule({ emiAmount, emiPeriod, emiDate })
+    const settings = await getSettingsData()
+    const schedule = buildEmiSchedule({
+      emiAmount,
+      emiPeriod,
+      emiDate,
+      frequency: emiFrequencyFromSettings(settings),
+    })
     for (const row of schedule) {
       await client.query(
         `INSERT INTO emi_schedules (
@@ -152,17 +160,33 @@ router.get('/', async (req, res) => {
 })
 
 router.get('/:id', async (req, res) => {
+  const { ensureVehicleDates } = await import('../services/specialReports.js')
+  await ensureVehicleDates()
   const { rows } = await query(`SELECT * FROM customers WHERE id = $1`, [req.params.id])
   if (!rows[0]) return res.status(404).json(null)
   res.json(mapCustomer(rows[0]))
 })
 
 router.put('/:id', async (req, res) => {
+  const { ensureVehicleDates } = await import('../services/specialReports.js')
+  await ensureVehicleDates()
   const id = Number(req.params.id)
   const body = req.body || {}
   const existing = await query(`SELECT * FROM customers WHERE id = $1`, [id])
   if (!existing.rows[0]) return res.status(404).json({ error: 'Customer not found' })
   const prev = existing.rows[0]
+  await ensureOfficeSchema()
+
+  let hpNo = prev.hp_no
+  if (body.hpNo && String(body.hpNo).trim() && String(body.hpNo).trim() !== prev.hp_no) {
+    const nextHp = String(body.hpNo).trim()
+    const clash = await query(
+      `SELECT id FROM customers WHERE lower(hp_no) = lower($1) AND id <> $2`,
+      [nextHp, id]
+    )
+    if (clash.rowCount > 0) return res.status(409).json({ error: `HP No "${nextHp}" already exists.` })
+    hpNo = nextHp
+  }
 
   const seized = body.seized === 'YES' ? 'YES' : 'NO'
   const closed = body.closed === 'YES' ? 'YES' : 'NO'
@@ -184,8 +208,10 @@ router.put('/:id', async (req, res) => {
       seized = $12, closed = $13,
       seized_date = $14, closed_date = $15,
       city = $16, state = $17, street = $18, alternate_mobile = $19,
+      insurance_expiry = $20, tax_expiry = $21, pollution_expiry = $22, rta_token_date = $23,
+      hp_no = $25, seized_notes = $26,
       updated_at = NOW()
-     WHERE id = $20
+     WHERE id = $24
      RETURNING *`,
     [
       String(body.name || prev.name).trim(),
@@ -207,12 +233,88 @@ router.put('/:id', async (req, res) => {
       String(body.state || '').trim() || null,
       String(body.street || '').trim() || null,
       String(body.alternateMobile || '').trim() || null,
+      body.insuranceExpiry || null,
+      body.taxExpiry || null,
+      body.pollutionExpiry || null,
+      body.rtaTokenDate || null,
       id,
+      hpNo,
+      String(body.seizedNotes ?? prev.seized_notes ?? '').trim() || null,
     ]
   )
 
   await refreshAllDerived()
   res.json(mapCustomer(rows[0]))
+})
+
+router.post('/:id/rebuild-schedule', async (req, res) => {
+  await ensureOfficeSchema()
+  const id = Number(req.params.id)
+  const existing = await query(`SELECT * FROM customers WHERE id = $1`, [id])
+  if (!existing.rows[0]) return res.status(404).json({ error: 'Customer not found' })
+  const prev = existing.rows[0]
+
+  const receipts = await query(`SELECT COUNT(*)::int AS n FROM receipts WHERE customer_id = $1`, [id])
+  if (Number(receipts.rows[0].n) > 0) {
+    return res.status(400).json({ error: 'Schedule can be rebuilt only before any receipt is saved.' })
+  }
+
+  const emiAmount = Number(req.body?.emiAmount || prev.emi_amount)
+  const emiPeriod = Number(req.body?.emiPeriod || prev.emi_period)
+  const emiDate = req.body?.emiDate || String(prev.emi_date).slice(0, 10)
+  if (!Number.isFinite(emiPeriod) || emiPeriod < 1) {
+    return res.status(400).json({ error: 'EMI period must be at least 1.' })
+  }
+  if (!Number.isFinite(emiAmount) || emiAmount <= 0) {
+    return res.status(400).json({ error: 'EMI amount must be greater than 0.' })
+  }
+
+  const settings = await getSettingsData()
+  const schedule = buildEmiSchedule({
+    emiAmount,
+    emiPeriod,
+    emiDate,
+    frequency: emiFrequencyFromSettings(settings),
+  })
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    await client.query(`DELETE FROM emi_schedules WHERE customer_id = $1`, [id])
+    for (const row of schedule) {
+      await client.query(
+        `INSERT INTO emi_schedules (
+          customer_id, sno, due_date, amount, interest_component,
+          paid_interest, paid_amount, balance, cumulative_balance, status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [
+          id, row.sno, row.dueDate, row.amount, row.interestComponent,
+          row.paidInterest, row.paidAmount, row.balance, row.cumulativeBalance, row.status,
+        ]
+      )
+    }
+    await client.query(
+      `UPDATE customers SET emi_amount = $1, emi_period = $2, emi_date = $3, updated_at = NOW() WHERE id = $4`,
+      [emiAmount, emiPeriod, emiDate, id]
+    )
+    await writeAudit({
+      actor: req.user?.name,
+      action: 'rebuild_schedule',
+      entity: 'customer',
+      entityId: id,
+      detail: { emiAmount, emiPeriod, emiDate, frequency: emiFrequencyFromSettings(settings) },
+    }, client)
+    await refreshAllDerived(client)
+    await client.query('COMMIT')
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+
+  const updated = await query(`SELECT * FROM customers WHERE id = $1`, [id])
+  res.json(mapCustomer(updated.rows[0]))
 })
 
 router.get('/:id/emi-summary', async (req, res) => {
@@ -256,7 +358,7 @@ router.get('/:id/emi-summary', async (req, res) => {
     totalEmis: schedule.length,
     paidEmis,
     remainingEmis: schedule.length - paidEmis,
-    totalLoan: 0,
+    totalLoan,
     overdueCount: overdue.length,
     overdueAmount,
     odInterestRate: odRate,
@@ -267,6 +369,7 @@ router.get('/:id/emi-summary', async (req, res) => {
 })
 
 router.get('/:id/bills', async (req, res) => {
+  await ensureOfficeSchema()
   const customerRes = await query(`SELECT * FROM customers WHERE id = $1`, [req.params.id])
   if (!customerRes.rows[0]) return res.status(404).json({ error: 'Customer not found' })
   const settings = await getSettingsData()
@@ -286,6 +389,8 @@ router.get('/:id/bills', async (req, res) => {
     total: Number(r.total),
     createdBy: r.created_by || '',
     type: 'EMI RECEIPT',
+    voided: Boolean(r.voided_at),
+    overpayment: Number(r.overpayment || 0),
   })))
 })
 
@@ -426,15 +531,15 @@ router.post('/:id/settlement', async (req, res) => {
       ]
     )
 
-    // Day report line
+    await ensureDayReportDate()
     const snoRes = await client.query(`SELECT COALESCE(MAX(sno),0)+1 AS sno FROM day_report_rows`)
     const c = mapCustomer(customerRes.rows[0])
     await client.query(
-      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt, entry_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         Number(snoRes.rows[0].sno), c.name, 'STM', c.hpNo,
-        `Settlement clearance`, req.user?.name || '', amountCollected,
+        `Settlement clearance`, req.user?.name || '', amountCollected, settlementDate,
       ]
     )
 
@@ -513,7 +618,10 @@ router.post('/:id/out-payments', async (req, res) => {
 
   const settings = await getSettingsData()
   const amount = Number(req.body?.amount || 0)
-  const interest = Number(req.body?.interest || 0)
+  const interestInput = req.body?.interest
+  const interest = interestInput === undefined || interestInput === null || interestInput === ''
+    ? Number(settings.outPaymentInterest || 0)
+    : Number(interestInput)
   const paidAmount = Number(req.body?.paidAmount ?? amount)
   const paidDate = defaultEntryDate(settings, req.body?.date)
   const status = req.body?.status === 'pending' ? 'pending' : 'paid'
@@ -556,6 +664,24 @@ router.post('/:id/out-payments', async (req, res) => {
     [c.name, c.village || '-', amount, interest, paidDate, customerId]
   )
 
+  await ensureDayReportDate()
+  const daySno = await query(`SELECT COALESCE(MAX(sno), 0) + 1 AS sno FROM day_report_rows`)
+  const opSeries = settings.hpopRcptSeries || 'OP'
+  await query(
+    `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt, entry_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [
+      Number(daySno.rows[0].sno),
+      c.name,
+      `${opSeries}/${rows[0].id}`,
+      c.hpNo,
+      'Out payment',
+      req.user?.name || '',
+      -Math.abs(paidAmount),
+      paidDate,
+    ]
+  )
+
   await refreshAllDerived()
   res.status(201).json(mapOutPayment(rows[0]))
 })
@@ -582,6 +708,8 @@ router.post('/:id/handloans', async (req, res) => {
   const customerRes = await query(`SELECT * FROM customers WHERE id = $1`, [customerId])
   if (!customerRes.rows[0]) return res.status(404).json({ error: 'Customer not found' })
 
+  const settings = await getSettingsData()
+  const loanType = String(settings.handloanType || '').includes('2') ? '2' : '1'
   const loanAmount = Number(req.body?.loanAmount || req.body?.amount || 0)
   const interestRate = Number(req.body?.interestRate || req.body?.interest || 0)
   const issuedDate = req.body?.issuedDate || req.body?.date || new Date().toISOString().slice(0, 10)
@@ -600,8 +728,8 @@ router.post('/:id/handloans', async (req, res) => {
   const c = mapCustomer(customerRes.rows[0])
   await query(
     `INSERT INTO handloan_accounts (loan_type, name, village, balance, interest_rate, issued_date, customer_id)
-     VALUES ('1', $1, $2, $3, $4, $5, $6)`,
-    [c.name, c.village || '-', balance, interestRate, issuedDate, customerId]
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [loanType, c.name, c.village || '-', balance, interestRate, issuedDate, customerId]
   )
 
   await refreshAllDerived()
@@ -613,8 +741,111 @@ router.post('/:id/handloans', async (req, res) => {
     issuedDate,
     balance,
     status: 'open',
+    loanType,
     notes: rows[0].notes,
   })
+})
+
+router.post('/:id/handloans/:hlId/repay', async (req, res) => {
+  await ensureOfficeSchema()
+  await ensureDayReportDate()
+  const customerId = Number(req.params.id)
+  const hlId = Number(req.params.hlId)
+  const amount = Number(req.body?.amount || 0)
+  const settings = await getSettingsData()
+  const paidDate = defaultEntryDate(settings, req.body?.date)
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'Amount must be greater than 0.' })
+  }
+  try {
+    assertNotBackdated(settings, paidDate)
+  } catch (err) {
+    return res.status(400).json({ error: err.message })
+  }
+
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const hl = await client.query(
+      `SELECT * FROM customer_handloans WHERE id = $1 AND customer_id = $2 FOR UPDATE`,
+      [hlId, customerId]
+    )
+    if (!hl.rows[0]) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ error: 'Handloan not found.' })
+    }
+    const balance = Number(hl.rows[0].balance)
+    if (amount > balance + 0.001) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Repayment is more than the handloan balance.' })
+    }
+    const nextBalance = Math.round((balance - amount) * 100) / 100
+    const status = nextBalance <= 0 ? 'paid' : 'open'
+    await client.query(
+      `UPDATE customer_handloans SET balance = $1, status = $2 WHERE id = $3`,
+      [nextBalance, status, hlId]
+    )
+    await client.query(
+      `UPDATE handloan_accounts
+       SET balance = GREATEST(balance - $1, 0)
+       WHERE id = (
+         SELECT id FROM handloan_accounts
+         WHERE customer_id = $2 AND issued_date = $3
+         ORDER BY id DESC LIMIT 1
+       )`,
+      [amount, customerId, hl.rows[0].issued_date]
+    )
+    const receiptNoRes = await client.query(`SELECT nextval('receipt_no_seq') AS receipt_no`)
+    const receiptNo = Number(receiptNoRes.rows[0].receipt_no)
+    await client.query(
+      `INSERT INTO handloan_receipts (customer_handloan_id, receipt_no, paid_date, amount, created_by)
+       VALUES ($1,$2,$3,$4,$5)`,
+      [hlId, receiptNo, paidDate, amount, req.user?.name || null]
+    )
+    const customer = mapCustomer((await client.query(`SELECT * FROM customers WHERE id = $1`, [customerId])).rows[0])
+    const snoRes = await client.query(`SELECT COALESCE(MAX(sno), 0) + 1 AS sno FROM day_report_rows`)
+    const series = settings.hphlRcptSeries || 'HL'
+    await client.query(
+      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt, entry_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        Number(snoRes.rows[0].sno), customer.name, `${series}/${receiptNo}`, customer.hpNo,
+        'Handloan receipt', req.user?.name || '', amount, paidDate,
+      ]
+    )
+    const bankId = Number(req.body?.bankId || 0)
+    if (bankId) {
+      const bank = await client.query(`SELECT id FROM bank_accounts WHERE id = $1`, [bankId])
+      if (!bank.rows[0]) {
+        await client.query('ROLLBACK')
+        return res.status(400).json({ error: 'Bank account not found.' })
+      }
+      await client.query(`UPDATE bank_accounts SET balance = balance + $1 WHERE id = $2`, [amount, bankId])
+    }
+    await writeAudit({
+      actor: req.user?.name,
+      action: 'handloan_repay',
+      entity: 'customer_handloan',
+      entityId: hlId,
+      detail: { amount, receiptNo, balance: nextBalance },
+    }, client)
+    await refreshAllDerived(client)
+    await client.query('COMMIT')
+    res.status(201).json({
+      ok: true,
+      receiptNo,
+      billNo: `${series}/${receiptNo}`,
+      amount,
+      balance: nextBalance,
+      status,
+      date: paidDate,
+    })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
 })
 
 router.post('/:id/receipts', async (req, res) => {
@@ -640,6 +871,8 @@ router.post('/:id/receipts', async (req, res) => {
     return res.status(400).json({ error: err.message })
   }
 
+  await ensureDayReportDate()
+  await ensureOfficeSchema()
   const client = await pool.connect()
   try {
     await client.query('BEGIN')
@@ -647,9 +880,9 @@ router.post('/:id/receipts', async (req, res) => {
     const receiptNo = Number(receiptNoRes.rows[0].receipt_no)
 
     await client.query(
-      `INSERT INTO receipts (receipt_no, customer_id, paid_date, amount, ta, total, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [receiptNo, customerId, paidDate, amount, ta, total, createdBy]
+      `INSERT INTO receipts (receipt_no, customer_id, paid_date, amount, ta, total, created_by, bank_id, overpayment)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,0)`,
+      [receiptNo, customerId, paidDate, amount, ta, total, createdBy, null]
     )
 
     let remaining = amount
@@ -664,26 +897,32 @@ router.post('/:id/receipts', async (req, res) => {
       if (remaining <= 0) break
       const owed = Number(row.balance)
       const pay = Math.min(remaining, owed)
+      const interestOwed = Math.max(0, Number(row.interest_component || 0) - Number(row.paid_interest || 0))
+      const interestPay = Math.min(pay, interestOwed)
       const newPaid = Number(row.paid_amount) + pay
       const newBalance = Number(row.amount) - newPaid
       const status = newBalance <= 0 ? 'paid' : 'partial'
 
       await client.query(
         `UPDATE emi_schedules
-         SET paid_amount = $1, balance = $2, status = $3
-         WHERE id = $4`,
-        [newPaid, Math.max(newBalance, 0), status, row.id]
+         SET paid_amount = $1, paid_interest = $2, balance = $3, status = $4
+         WHERE id = $5`,
+        [newPaid, Number(row.paid_interest || 0) + interestPay, Math.max(newBalance, 0), status, row.id]
+      )
+      await client.query(
+        `INSERT INTO receipt_allocations (receipt_no, emi_schedule_id, amount, interest)
+         VALUES ($1,$2,$3,$4)`,
+        [receiptNo, row.id, pay, interestPay]
       )
       remaining -= pay
     }
+    const overpayment = Math.round(Math.max(remaining, 0) * 100) / 100
 
-    // Day report line
     const snoRes = await client.query(`SELECT COALESCE(MAX(sno), 0) + 1 AS sno FROM day_report_rows`)
-    const settings = await client.query(`SELECT data FROM settings WHERE id = 1`)
-    const series = settings.rows[0]?.data?.hpRcptSeries || '00'
+    const series = settingsData.hpRcptSeries || '00'
     await client.query(
-      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt, entry_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [
         Number(snoRes.rows[0].sno),
         customer.name,
@@ -692,15 +931,29 @@ router.post('/:id/receipts', async (req, res) => {
         `EMI - ${customer.regNo || customer.hpNo}`,
         createdBy || '',
         total,
+        paidDate,
       ]
     )
 
-    // Bump first bank account balance (Phase-2 banks table)
-    await client.query(`
-      UPDATE bank_accounts
-      SET balance = balance + $1
-      WHERE id = (SELECT id FROM bank_accounts ORDER BY id LIMIT 1)
-    `, [total])
+    const requestedBankId = Number(req.body?.bankId || 0)
+    const bankRes = requestedBankId
+      ? await client.query(`SELECT id, name FROM bank_accounts WHERE id = $1`, [requestedBankId])
+      : await client.query(`SELECT id, name FROM bank_accounts ORDER BY id LIMIT 1`)
+    const bank = bankRes.rows[0]
+    if (requestedBankId && !bank) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'Bank account not found.' })
+    }
+    if (bank) {
+      await client.query(
+        `UPDATE bank_accounts SET balance = balance + $1 WHERE id = $2`,
+        [total, bank.id]
+      )
+    }
+    await client.query(
+      `UPDATE receipts SET bank_id = $1, overpayment = $2 WHERE receipt_no = $3`,
+      [bank?.id || null, overpayment, receiptNo]
+    )
 
     // Auto-close if all EMIs paid
     const unpaid = await client.query(
@@ -714,7 +967,8 @@ router.post('/:id/receipts', async (req, res) => {
       )
     }
 
-    // Phase 3: double-entry post
+    let ledgerPosted = true
+    let ledgerWarning = null
     try {
       await postEmiReceipt({
         receiptNo,
@@ -727,7 +981,8 @@ router.post('/:id/receipts', async (req, res) => {
         createdBy,
       }, client)
     } catch (ledgerErr) {
-      // Don't fail the receipt if chart of accounts isn't set up yet
+      ledgerPosted = false
+      ledgerWarning = ledgerErr.message
       console.warn('Ledger post skipped:', ledgerErr.message)
     }
 
@@ -741,7 +996,157 @@ router.post('/:id/receipts', async (req, res) => {
       amount,
       ta,
       total,
+      bankId: bank?.id || null,
+      bankName: bank?.name || null,
+      overpayment,
+      ledgerPosted,
+      ledgerWarning,
     })
+  } catch (err) {
+    await client.query('ROLLBACK')
+    throw err
+  } finally {
+    client.release()
+  }
+})
+
+router.post('/:id/receipts/:receiptNo/void', async (req, res) => {
+  await ensureOfficeSchema()
+  await ensureDayReportDate()
+  const customerId = Number(req.params.id)
+  const receiptNo = Number(req.params.receiptNo)
+  const client = await pool.connect()
+  try {
+    await client.query('BEGIN')
+    const receiptRes = await client.query(
+      `SELECT * FROM receipts WHERE receipt_no = $1 AND customer_id = $2 FOR UPDATE`,
+      [receiptNo, customerId]
+    )
+    const receipt = receiptRes.rows[0]
+    if (!receipt) {
+      await client.query('ROLLBACK')
+      return res.status(404).json({ error: 'Receipt not found.' })
+    }
+    if (receipt.voided_at) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'This receipt is already void.' })
+    }
+    const settled = await client.query(`SELECT id FROM settlements WHERE customer_id = $1 LIMIT 1`, [customerId])
+    if (settled.rowCount > 0) {
+      await client.query('ROLLBACK')
+      return res.status(400).json({ error: 'This finance is settled. Void is blocked.' })
+    }
+
+    const allocs = await client.query(
+      `SELECT * FROM receipt_allocations WHERE receipt_no = $1`,
+      [receiptNo]
+    )
+    if (allocs.rowCount > 0) {
+      for (const alloc of allocs.rows) {
+        const rowRes = await client.query(`SELECT * FROM emi_schedules WHERE id = $1 FOR UPDATE`, [alloc.emi_schedule_id])
+        const row = rowRes.rows[0]
+        if (!row) continue
+        const undo = Number(alloc.amount)
+        const newPaid = Math.max(0, Number(row.paid_amount) - undo)
+        const newInterest = Math.max(0, Number(row.paid_interest) - Number(alloc.interest || 0))
+        const newBalance = Math.max(0, Number(row.amount) - newPaid)
+        const status = newPaid <= 0 ? 'pending' : 'partial'
+        await client.query(
+          `UPDATE emi_schedules SET paid_amount = $1, paid_interest = $2, balance = $3, status = $4 WHERE id = $5`,
+          [newPaid, newInterest, newBalance, status, row.id]
+        )
+      }
+    } else {
+      let left = Number(receipt.amount)
+      const sched = await client.query(
+        `SELECT * FROM emi_schedules WHERE customer_id = $1 AND paid_amount > 0 ORDER BY sno DESC FOR UPDATE`,
+        [customerId]
+      )
+      for (const row of sched.rows) {
+        if (left <= 0) break
+        const undo = Math.min(left, Number(row.paid_amount))
+        const interestUndo = Math.min(undo, Number(row.paid_interest || 0))
+        const newPaid = Number(row.paid_amount) - undo
+        const newInterest = Number(row.paid_interest || 0) - interestUndo
+        const newBalance = Math.max(0, Number(row.amount) - newPaid)
+        const status = newPaid <= 0 ? 'pending' : 'partial'
+        await client.query(
+          `UPDATE emi_schedules SET paid_amount = $1, paid_interest = $2, balance = $3, status = $4 WHERE id = $5`,
+          [newPaid, newInterest, newBalance, status, row.id]
+        )
+        left -= undo
+      }
+    }
+
+    await client.query(
+      `UPDATE receipts SET voided_at = NOW(), voided_by = $1 WHERE receipt_no = $2`,
+      [req.user?.name || null, receiptNo]
+    )
+
+    const bankId = receipt.bank_id
+    if (bankId) {
+      await client.query(`UPDATE bank_accounts SET balance = balance - $1 WHERE id = $2`, [Number(receipt.total), bankId])
+    } else {
+      await client.query(
+        `UPDATE bank_accounts SET balance = balance - $1
+         WHERE id = (SELECT id FROM bank_accounts ORDER BY id LIMIT 1)`,
+        [Number(receipt.total)]
+      )
+    }
+
+    const customer = mapCustomer((await client.query(`SELECT * FROM customers WHERE id = $1`, [customerId])).rows[0])
+    const snoRes = await client.query(`SELECT COALESCE(MAX(sno), 0) + 1 AS sno FROM day_report_rows`)
+    const today = new Date().toISOString().slice(0, 10)
+    await client.query(
+      `INSERT INTO day_report_rows (sno, name, rc_no, hp, description, created_by, receipt_amt, entry_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        Number(snoRes.rows[0].sno), customer.name, `VOID/${receiptNo}`, customer.hpNo,
+        'Receipt void', req.user?.name || '', -Number(receipt.total), today,
+      ]
+    )
+
+    const unpaid = await client.query(
+      `SELECT COUNT(*)::int AS n FROM emi_schedules WHERE customer_id = $1 AND status <> 'paid'`,
+      [customerId]
+    )
+    if (Number(unpaid.rows[0].n) > 0) {
+      await client.query(
+        `UPDATE customers SET closed = 'NO', closed_date = NULL, updated_at = NOW() WHERE id = $1 AND closed = 'YES'`,
+        [customerId]
+      )
+    }
+
+    let ledgerWarning = null
+    try {
+      await postJournal({
+        entryDate: today,
+        narration: `Void EMI receipt ${receiptNo} — ${customer.name} (${customer.hpNo})`,
+        referenceType: 'RECEIPT_VOID',
+        referenceId: String(receiptNo),
+        createdBy: req.user?.name || null,
+        lines: [
+          { accountName: 'HP RECEIVABLES', debit: Number(receipt.amount), credit: 0 },
+          ...(Number(receipt.ta) > 0
+            ? [{ accountName: "EMI TA's", debit: Number(receipt.ta), credit: 0 }]
+            : []),
+          { accountName: 'CASH / BANK COLLECTIONS', debit: 0, credit: Number(receipt.total) },
+        ],
+      }, client)
+    } catch (ledgerErr) {
+      ledgerWarning = ledgerErr.message
+    }
+
+    await writeAudit({
+      actor: req.user?.name,
+      action: 'void_receipt',
+      entity: 'receipt',
+      entityId: receiptNo,
+      detail: { customerId, total: Number(receipt.total) },
+    }, client)
+    await refreshAllDerived(client)
+    await client.query('COMMIT')
+    res.json({ ok: true, receiptNo, voided: true, ledgerWarning })
   } catch (err) {
     await client.query('ROLLBACK')
     throw err

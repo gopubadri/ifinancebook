@@ -85,6 +85,12 @@ export default function Consultancy() {
     { key: 'purchaseAmount', label: 'Amount', numeric: true, render: (r) => inr(r.purchaseAmount) },
     { key: 'repairCost', label: 'Repair', numeric: true, render: (r) => inr(r.repairCost) },
     {
+      key: 'carryingInterest',
+      label: 'Carry int.',
+      numeric: true,
+      render: (r) => r.sellingPrice ? '—' : inr(r.carryingInterest || 0),
+    },
+    {
       key: 'sellingPrice', label: 'Selled', numeric: true,
       render: (r) => r.sellingPrice ? inr(r.sellingPrice) : <span className="stamp pending">unsold</span>,
     },

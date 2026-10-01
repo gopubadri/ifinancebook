@@ -4,6 +4,7 @@ import * as api from '../../api/api.js'
 import { inr } from '../../utils/format.js'
 import Loader from '../../components/Loader.jsx'
 import DataTable from '../../components/DataTable.jsx'
+import ReceiptSlip from '../../components/ReceiptSlip.jsx'
 
 export default function CustomerSimple({ title }) {
   const { customer, refreshCustomer } = useOutletContext()
@@ -19,6 +20,8 @@ export default function CustomerSimple({ title }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
+  const [repayId, setRepayId] = useState(null)
+  const [repayAmount, setRepayAmount] = useState('')
   const [hlForm, setHlForm] = useState({
     loanAmount: '',
     interestRate: 0,
@@ -29,6 +32,8 @@ export default function CustomerSimple({ title }) {
     remindDate: new Date().toISOString().slice(0, 10),
     message: '',
   })
+  const [printBill, setPrintBill] = useState(null)
+  const [settings, setSettings] = useState(null)
   const [stmForm, setStmForm] = useState({
     date: new Date().toISOString().slice(0, 10),
     waiverAmount: 0,
@@ -46,8 +51,9 @@ export default function CustomerSimple({ title }) {
     setOutPayments(outs || [])
     setHandloans(hls || [])
 
-    if (title === 'Bills') {
-      setBills(await api.getCustomerBills(customer.id))
+    if (title === 'Bills' || title === 'Hand Loans') {
+      if (title === 'Bills') setBills(await api.getCustomerBills(customer.id))
+      setSettings(await api.getSettings().catch(() => null))
     }
     if (title === 'Reminders') {
       setReminders(await api.getCustomerReminders(customer.id))
@@ -187,17 +193,60 @@ export default function CustomerSimple({ title }) {
       { key: 'ta', label: 'TA', numeric: true, render: (r) => inr(r.ta) },
       { key: 'total', label: 'Total', numeric: true, render: (r) => inr(r.total) },
       { key: 'createdBy', label: 'By' },
+      {
+        key: 'actions',
+        label: '',
+        render: (r) => r.voided ? (
+          <span className="stamp pending">void</span>
+        ) : (
+          <span style={{ display: 'flex', gap: 6 }}>
+            <button type="button" className="btn sm outline" onClick={() => setPrintBill(r)}>Print</button>
+            <button
+              type="button"
+              className="btn sm outline"
+              onClick={async () => {
+                if (!window.confirm(`Void receipt ${r.billNo}? This reverses the EMI, bank, and day book.`)) return
+                setError('')
+                try {
+                  await api.voidReceipt(customer.id, r.receiptNo)
+                  await load()
+                  if (refreshCustomer) await refreshCustomer()
+                } catch (err) {
+                  setError(err.message || 'Could not void the receipt.')
+                }
+              }}
+            >
+              Void
+            </button>
+          </span>
+        ),
+      },
     ]
     return (
       <div>
-        <h1 style={{ fontSize: 18, marginBottom: 8 }}>Bills — HP No: {customer.hpNo}</h1>
-        <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+        <h1 className="no-print" style={{ fontSize: 18, marginBottom: 8 }}>Bills — HP No: {customer.hpNo}</h1>
+        <p className="no-print" style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
           Receipt history for this finance ({bills.length} bill(s)).
         </p>
-        <DataTable columns={columns} rows={bills} emptyMessage="No receipts yet for this finance." />
-        <p style={{ marginTop: 12, fontSize: 13 }}>
-          <Link className="row-link" to={`/finance/${customer.id}/receipt`}>+ New receipt →</Link>
-        </p>
+        {printBill && (
+          <ReceiptSlip
+            settings={settings}
+            rcNo={printBill.billNo}
+            date={printBill.date}
+            customer={customer}
+            amount={printBill.amount}
+            ta={printBill.ta}
+            total={printBill.total}
+            receivedBy={printBill.createdBy}
+            onClose={() => setPrintBill(null)}
+          />
+        )}
+        <div className={printBill ? 'no-print' : ''}>
+          <DataTable columns={columns} rows={bills} emptyMessage="No receipts yet for this finance." />
+          <p style={{ marginTop: 12, fontSize: 13 }}>
+            <Link className="row-link" to={`/finance/${customer.id}/receipt`}>+ New receipt →</Link>
+          </p>
+        </div>
       </div>
     )
   }
@@ -263,6 +312,15 @@ export default function CustomerSimple({ title }) {
       { key: 'issuedDate', label: 'Issued' },
       { key: 'balance', label: 'Balance', numeric: true, render: (r) => inr(r.balance) },
       { key: 'status', label: 'Status', render: (r) => <span className={`stamp ${r.status === 'open' ? 'pending' : 'paid'}`}>{r.status}</span> },
+      {
+        key: 'repay',
+        label: '',
+        render: (r) => r.status === 'open' ? (
+          <button type="button" className="btn sm outline" onClick={() => { setRepayId(r.id); setRepayAmount(String(r.balance)); setError('') }}>
+            Repay
+          </button>
+        ) : null,
+      },
     ]
     return (
       <div>
@@ -273,7 +331,7 @@ export default function CustomerSimple({ title }) {
           </button>
         </div>
         <p style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
-          Customer-specific handloans (Phase 2). Also appear under Transactions → HandLoans.
+          Customer-specific handloans. New loans are filed as {settings?.handloanType || 'Type 1'} from Settings, and also appear under Transactions → HandLoans.
         </p>
 
         {showHlForm && (
@@ -305,6 +363,39 @@ export default function CustomerSimple({ title }) {
           </form>
         )}
 
+        {repayId && (
+          <form
+            className="panel"
+            style={{ marginBottom: 16 }}
+            onSubmit={async (e) => {
+              e.preventDefault()
+              setSaving(true)
+              setError('')
+              try {
+                await api.repayHandloan(customer.id, repayId, { amount: Number(repayAmount) })
+                setRepayId(null)
+                setMessage('Handloan receipt saved.')
+                await load()
+              } catch (err) {
+                setError(err.message || 'Could not save the repayment.')
+              } finally {
+                setSaving(false)
+              }
+            }}
+          >
+            <div className="panel-body">
+              <div className="field" style={{ maxWidth: 240 }}>
+                <label>Repayment amount</label>
+                <input required type="number" min="1" value={repayAmount} onChange={(e) => setRepayAmount(e.target.value)} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                <button className="btn brass" disabled={saving} type="submit">{saving ? 'Saving...' : 'Save receipt'}</button>
+                <button className="btn outline" type="button" onClick={() => setRepayId(null)}>Cancel</button>
+              </div>
+            </div>
+          </form>
+        )}
+
         <DataTable columns={columns} rows={handloans} emptyMessage="No customer handloans yet." />
         <p style={{ marginTop: 12, fontSize: 13 }}>
           Out payments: <Link className="row-link" to={`/finance/${customer.id}/out-payments`}>{outPayments.length} record(s)</Link>
@@ -322,6 +413,7 @@ export default function CustomerSimple({ title }) {
         <div className="panel"><div className="panel-body">
           <p>Seized status: <span className={`stamp ${customer.seized === 'YES' ? 'pending' : 'paid'}`}>{customer.seized}</span></p>
           {customer.seizedDate && <p style={{ marginTop: 8, fontSize: 13 }}>Seized date: <strong>{customer.seizedDate}</strong></p>}
+          {customer.seizedNotes && <p style={{ marginTop: 8, fontSize: 13 }}>Notes: {customer.seizedNotes}</p>}
           <Link className="btn outline" style={{ marginTop: 12 }} to={`/finance/${customer.id}`}>Go to Overview</Link>
         </div></div>
       </div>

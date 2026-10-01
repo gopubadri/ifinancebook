@@ -5,9 +5,12 @@ import { mapBike, mapDayReport, mapAuthUser } from '../mappers.js'
 import { requireRole } from '../middleware/auth.js'
 import { refreshAllDerived, refreshDashboardStats } from '../services/refresh.js'
 import { isPhase2Module, MODULE_MAP } from '../config/txConfig.js'
-import { listResource, createResource } from './transactions.js'
+import { listResource, createResource, updateResource, deleteResource } from './transactions.js'
+import { ensureOfficeSchema, writeAudit } from '../utils/office.js'
 import { parsePagination, pageResult } from '../utils/pagination.js'
 import { runGlobalSearch } from '../services/search.js'
+import { getSettingsData } from '../utils/settings.js'
+import { ensureDayReportDate } from '../utils/dayReport.js'
 
 const router = Router()
 const ALLOWED_ROLES = new Set(['ADMIN', 'CLERK', 'LINE EXECUTIVE'])
@@ -27,7 +30,7 @@ router.get('/dashboard', async (_req, res) => {
   })
 })
 
-router.get('/users', async (_req, res) => {
+router.get('/users', requireRole('ADMIN'), async (_req, res) => {
   const { rows } = await query(
     `SELECT id, username, name, role, created_at
      FROM auth_users
@@ -80,8 +83,20 @@ function bodyName(req) {
 }
 
 router.get('/consultancy', async (_req, res) => {
+  const settings = await getSettingsData()
+  const rate = Number(settings.consultancyInterest || 0)
   const { rows } = await query(`SELECT * FROM bike_purchases ORDER BY id`)
-  res.json(rows.map(mapBike))
+  const today = new Date()
+  res.json(rows.map((row) => {
+    const bike = mapBike(row)
+    let carryingInterest = 0
+    if (!(Number(row.selling_price) > 0) && row.purchase_date && rate) {
+      const bought = row.purchase_date instanceof Date ? row.purchase_date : new Date(row.purchase_date)
+      const days = Math.max(0, Math.floor((today - bought) / 86400000))
+      carryingInterest = Math.round(Number(row.purchase_amount || 0) * (rate / 100) * (days / 365) * 100) / 100
+    }
+    return { ...bike, carryingInterest, interestRate: rate }
+  }))
 })
 
 router.post('/consultancy', async (req, res) => {
@@ -168,7 +183,7 @@ router.put('/consultancy/:id', async (req, res) => {
 router.get('/search', async (req, res) => {
   const q = String(req.query.q || '').trim()
   const limit = Math.min(20, Math.max(1, Number.parseInt(req.query.limit, 10) || 6))
-  res.json(await runGlobalSearch(q, limit))
+  res.json(await runGlobalSearch(q, limit, req.user?.role))
 })
 
 router.get('/modules/:key', async (req, res) => {
@@ -289,6 +304,65 @@ router.post('/modules/:key/rows', async (req, res) => {
   res.status(201).json({ id: rows[0].id, ...rows[0].row_data })
 })
 
+router.put('/modules/:key/rows/:id', async (req, res) => {
+  const key = req.params.key
+  if (isPhase2Module(key)) {
+    try {
+      const cfg = MODULE_MAP[key]
+      const updated = await updateResource(cfg.resource, req.params.id, { ...(req.body || {}), actor: req.user?.name })
+      if (!updated) return res.status(404).json({ error: 'Not found' })
+      await refreshAllDerived()
+      return res.json(updated)
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message })
+    }
+  }
+  const rowData = { ...(req.body || {}) }
+  delete rowData.id
+  const { rows } = await query(
+    `UPDATE generic_module_rows SET row_data = $1::jsonb
+     WHERE id = $2 AND module_key = $3
+     RETURNING id, row_data`,
+    [JSON.stringify(rowData), req.params.id, key]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'Not found' })
+  res.json({ id: rows[0].id, ...rows[0].row_data })
+})
+
+router.delete('/modules/:key/rows/:id', async (req, res) => {
+  const key = req.params.key
+  if (isPhase2Module(key)) {
+    const cfg = MODULE_MAP[key]
+    const ok = await deleteResource(cfg.resource, req.params.id)
+    if (!ok) return res.status(404).json({ error: 'Not found' })
+    await refreshAllDerived()
+    return res.status(204).end()
+  }
+  const result = await query(
+    `DELETE FROM generic_module_rows WHERE id = $1 AND module_key = $2`,
+    [req.params.id, key]
+  )
+  if (!result.rowCount) return res.status(404).json({ error: 'Not found' })
+  res.status(204).end()
+})
+
+router.get('/reports/line', async (req, res) => {
+  const { getLineReport } = await import('../services/lineReport.js')
+  res.json(await getLineReport({
+    view: req.query.view,
+    type: req.query.type,
+    village: req.query.village,
+    asOf: req.query.asOf,
+  }))
+})
+
+router.get('/reports/special/:key', async (req, res) => {
+  const { getSpecialReport } = await import('../services/specialReports.js')
+  const data = await getSpecialReport(req.params.key, req.query)
+  if (!data) return res.status(404).json({ error: 'Unknown report' })
+  res.json(data)
+})
+
 router.get('/reports/menu', async (_req, res) => {
   const { rows } = await query(`SELECT category, label FROM report_menu ORDER BY id`)
   const menu = { finance: [], financeType2: [], accounts: [] }
@@ -316,10 +390,14 @@ router.get('/reports/balance-sheet', async (_req, res) => {
   }
 })
 
-router.get('/reports/pnl', async (_req, res) => {
+router.get('/reports/pnl', async (req, res) => {
   try {
     const { getPnlFromLedger } = await import('../services/ledger.js')
-    return res.json(await getPnlFromLedger())
+    return res.json(await getPnlFromLedger({
+      from: req.query.from || null,
+      to: req.query.to || null,
+      preset: req.query.preset || null,
+    }))
   } catch {
     const { rows } = await query(
       `SELECT side, label, amount FROM ledger_lines
@@ -332,29 +410,56 @@ router.get('/reports/pnl', async (_req, res) => {
   }
 })
 
-router.get('/reports/day-report', async (_req, res) => {
-  // Prefer live day_report_rows (includes opening + receipts)
-  const stored = await query(`SELECT * FROM day_report_rows ORDER BY sno`)
-  if (stored.rowCount === 0) {
-    // Fallback: build from receipts
-    const receipts = await query(`
-      SELECT r.receipt_no, r.paid_date, r.total, r.created_by, c.name, c.hp_no, c.reg_no
-      FROM receipts r
-      JOIN customers c ON c.id = r.customer_id
-      ORDER BY r.id
-    `)
-    const rows = receipts.rows.map((r, i) => ({
-      sno: i + 1,
-      name: r.name,
-      rcNo: String(r.receipt_no),
-      hp: r.hp_no,
-      desc: `EMI - ${r.reg_no || r.hp_no}`,
-      createdBy: r.created_by || '',
-      receiptAmt: Number(r.total),
-    }))
-    return res.json(rows)
+router.get('/reports/day-report', async (req, res) => {
+  await ensureDayReportDate()
+  const date = String(req.query.date || new Date().toISOString().slice(0, 10)).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return res.status(400).json({ error: 'Date must be YYYY-MM-DD.' })
   }
-  res.json(stored.rows.map(mapDayReport))
+
+  const settings = await getSettingsData()
+  const openingBase = await query(
+    `SELECT COALESCE(SUM(receipt_amt), 0) AS amt
+     FROM day_report_rows WHERE upper(name) = 'OPENING BALANCE'`
+  )
+  const prior = await query(
+    `SELECT COALESCE(SUM(receipt_amt), 0) AS amt
+     FROM day_report_rows
+     WHERE entry_date IS NOT NULL AND entry_date < $1`,
+    [date]
+  )
+  const day = await query(
+    `SELECT * FROM day_report_rows
+     WHERE entry_date = $1
+     ORDER BY sno, id`,
+    [date]
+  )
+
+  const opening = Math.round((Number(openingBase.rows[0].amt) + Number(prior.rows[0].amt)) * 100) / 100
+  const lines = day.rows.map(mapDayReport)
+  const rows = [
+    {
+      sno: 1,
+      name: 'OPENING BALANCE',
+      rcNo: '----',
+      hp: '----',
+      desc: '----',
+      createdBy: '',
+      receiptAmt: opening,
+    },
+    ...lines.map((row, i) => ({ ...row, sno: i + 2 })),
+  ]
+  const collected = Math.round(lines.reduce((s, r) => s + Number(r.receiptAmt || 0), 0) * 100) / 100
+
+  res.json({
+    date,
+    city: settings.city || 'TADEPALLIGUDEM',
+    opening,
+    collected,
+    closing: Math.round((opening + collected) * 100) / 100,
+    count: lines.length,
+    rows,
+  })
 })
 
 router.get('/reports/closed-hp', async (_req, res) => {
@@ -465,10 +570,11 @@ router.get('/reports/od', async (_req, res) => {
 })
 
 router.get('/reports/collection', async (req, res) => {
+  await ensureOfficeSchema()
   const from = req.query.from || null
   const to = req.query.to || null
   const params = []
-  let where = '1=1'
+  let where = 'r.voided_at IS NULL'
   if (from) {
     params.push(from)
     where += ` AND r.paid_date >= $${params.length}::date`
@@ -534,14 +640,67 @@ router.get('/settings', async (_req, res) => {
   res.json(rows[0]?.data || {})
 })
 
-router.put('/settings', async (req, res) => {
+router.put('/settings', requireRole('ADMIN'), async (req, res) => {
   const data = req.body || {}
   await query(
     `INSERT INTO settings (id, data) VALUES (1, $1::jsonb)
      ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data`,
     [JSON.stringify(data)]
   )
+  await writeAudit({
+    actor: req.user?.name,
+    action: 'settings_save',
+    entity: 'settings',
+    entityId: 1,
+    detail: { emiFrequency: data.emiFrequency, odInterest: data.odInterest },
+  })
   res.json({ ok: true, ...data })
+})
+
+router.get('/staff', async (_req, res) => {
+  const { rows } = await query(`SELECT id, name, mobile, type, joined_on FROM staff_users ORDER BY id`)
+  res.json(rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    mobile: r.mobile || '',
+    type: r.type,
+    joinedOn: r.joined_on ? String(r.joined_on).slice(0, 10) : '',
+  })))
+})
+
+router.get('/audit', requireRole('ADMIN'), async (_req, res) => {
+  await ensureOfficeSchema()
+  const { rows } = await query(
+    `SELECT * FROM audit_events ORDER BY id DESC LIMIT 200`
+  )
+  res.json(rows.map((r) => ({
+    id: r.id,
+    at: r.created_at,
+    actor: r.actor || '',
+    action: r.action,
+    entity: r.entity,
+    entityId: r.entity_id || '',
+    detail: r.detail || {},
+  })))
+})
+
+router.post('/users/:id/password', requireRole('ADMIN'), async (req, res) => {
+  const password = String(req.body?.password || '')
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters.' })
+  const passwordHash = await bcrypt.hash(password, 10)
+  const { rows } = await query(
+    `UPDATE auth_users SET password_hash = $1 WHERE id = $2 RETURNING id, username, name`,
+    [passwordHash, req.params.id]
+  )
+  if (!rows[0]) return res.status(404).json({ error: 'User not found' })
+  await writeAudit({
+    actor: req.user?.name,
+    action: 'password_reset',
+    entity: 'user',
+    entityId: rows[0].id,
+    detail: { username: rows[0].username },
+  })
+  res.json({ ok: true, id: rows[0].id, username: rows[0].username })
 })
 
 export default router
