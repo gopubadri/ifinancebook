@@ -211,6 +211,7 @@ router.get('/modules/:key', async (req, res) => {
       hasPrev: paged.hasPrev,
       phase2: true,
       q,
+      balanceTotal: paged.balanceTotal,
     })
   }
 
@@ -516,10 +517,10 @@ router.get('/reports/seized-hp', async (_req, res) => {
 })
 
 router.get('/reports/od', async (_req, res) => {
-  const { getSettingsData, calcOdInterest } = await import('../utils/settings.js')
+  const { getSettingsData, calcOdInterest, calendarDate } = await import('../utils/settings.js')
   const settings = await getSettingsData()
   const odRate = Number(settings.odInterest ?? 0.1)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = calendarDate()
 
   const { rows } = await query(
     `SELECT c.id, c.hp_no, c.name, c.mobile, c.reg_no, c.village,
@@ -535,8 +536,8 @@ router.get('/reports/od', async (_req, res) => {
 
   const items = rows.map((r, i) => {
     const balance = Number(r.balance || 0)
-    const dueDate = r.due_date ? String(r.due_date).slice(0, 10) : ''
-    const od = calcOdInterest(balance, dueDate, odRate)
+    const dueDate = r.due_date ? calendarDate(r.due_date) : ''
+    const od = calcOdInterest(balance, r.due_date || dueDate, odRate)
     return {
       sno: i + 1,
       customerId: r.id,

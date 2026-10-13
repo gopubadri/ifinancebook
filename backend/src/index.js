@@ -15,8 +15,21 @@ dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 
 const app = express()
 const port = Number(process.env.PORT || 4000)
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean)
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173', credentials: true }))
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+    callback(null, false)
+  },
+  credentials: true,
+}))
 app.use(express.json())
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))

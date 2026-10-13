@@ -84,6 +84,7 @@ router.get('/modules/:key', async (req, res) => {
     hasPrev: paged.hasPrev,
     phase2: true,
     q,
+    balanceTotal: paged.balanceTotal,
   })
 })
 
@@ -250,12 +251,19 @@ async function listResource(resource, filter = {}, options = null) {
       const filterSql = q
         ? `AND (lower(name) LIKE $2 OR lower(COALESCE(village,'')) LIKE $2)`
         : ''
-      return run({
+      const listed = await run({
         countSql: `SELECT COUNT(*)::int AS count FROM handloan_accounts WHERE loan_type = $1 ${filterSql}`,
         dataSql: `SELECT * FROM handloan_accounts WHERE loan_type = $1 ${filterSql} ORDER BY id`,
         params,
         map: mapHandloan,
       })
+      const sumRes = await query(
+        `SELECT COALESCE(SUM(balance), 0) AS total FROM handloan_accounts WHERE loan_type = $1 ${filterSql}`,
+        params
+      )
+      const balanceTotal = Number(sumRes.rows[0].total || 0)
+      if (listed && !Array.isArray(listed)) return { ...listed, balanceTotal }
+      return listed
     }
     case 'banks': {
       const params = q ? [like] : []

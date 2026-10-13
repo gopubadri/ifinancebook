@@ -1,4 +1,10 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api'
+function apiBase() {
+  const raw = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '')
+  if (!raw || raw === '/api') return '/api'
+  return raw.endsWith('/api') ? raw : `${raw}/api`
+}
+
+const API_BASE = apiBase()
 
 function getToken() {
   try {

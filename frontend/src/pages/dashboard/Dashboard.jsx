@@ -7,9 +7,9 @@ import Loader from '../../components/Loader.jsx'
 
 const STAT_TILES = [
   { key: 'income', label: 'Income', money: true, to: '/reports/pnl' },
-  { key: 'expenses', label: 'Expenses', money: true, to: '/module/income-expense-transactions' },
+  { key: 'expenses', label: 'Expenses', money: true, to: '/reports/pnl' },
   { key: 'emiCollection', label: 'EMI Collection', money: true, to: '/reports/collection?all=1' },
-  { key: 'hlCollection', label: 'HP HL Collection', money: true, to: '/module/handloans-new' },
+  { key: 'hlCollection', label: 'HP HL Outstanding', money: true, to: '/module/handloans-new' },
   { key: 'odCollection', label: 'OD Collection', money: true, to: '/reports/od' },
   { key: 'closedHp', label: "Closed HP's", money: false, to: '/reports/closed-hp' },
 ]

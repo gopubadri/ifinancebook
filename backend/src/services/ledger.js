@@ -287,27 +287,69 @@ export async function getBalanceSheetFromLedger() {
 
 const TRADING_WORDS = ['sale', 'consult', 'agreement', 'purchase', 'stock', 'repair']
 
-export async function getPnlFromLedger({ from = null, to = null, preset = null } = {}) {
+/** Bills saved before a journal was posted still belong on the P&L. */
+async function addUnpostedIeBills(income, expenses, executor, rangeFrom, rangeTo, trading) {
+  const params = []
+  let sql = `
+    SELECT b.bill_type,
+           COALESCE(NULLIF(TRIM(b.account), ''),
+             CASE WHEN b.bill_type = 'Income' THEN 'AGREEMENTS' ELSE 'GENERAL EXPENSE' END) AS account,
+           COALESCE(SUM(b.amount), 0) AS amount
+    FROM ie_bills b
+    WHERE NOT EXISTS (
+      SELECT 1 FROM journal_entries je
+      WHERE je.reference_type = 'IE_BILL' AND je.reference_id = b.id::text
+    )`
+  if (rangeFrom) {
+    params.push(rangeFrom)
+    sql += ` AND b.paid_date >= $${params.length}::date`
+  }
+  if (rangeTo) {
+    params.push(rangeTo)
+    sql += ` AND b.paid_date <= $${params.length}::date`
+  }
+  sql += ` GROUP BY b.bill_type, 2`
+  const { rows } = await executor.query(sql, params).catch(() => ({ rows: [] }))
+  for (const row of rows) {
+    const amount = Math.round(Number(row.amount || 0) * 100) / 100
+    if (!amount) continue
+    const name = String(row.account || '').toUpperCase()
+    if (trading && !TRADING_WORDS.some((word) => name.toLowerCase().includes(word))) continue
+    const list = String(row.bill_type).toLowerCase() === 'income' ? income : expenses
+    const existing = list.find((line) => String(line[0]).toUpperCase() === name)
+    if (existing) existing[1] = Math.round((Number(existing[1]) + amount) * 100) / 100
+    else list.push([name, amount])
+  }
+}
+
+function pnlTotals(income, expenses) {
+  const totalIncome = Math.round(income.reduce((s, [, v]) => s + Number(v || 0), 0) * 100) / 100
+  const totalExpenses = Math.round(expenses.reduce((s, [, v]) => s + Number(v || 0), 0) * 100) / 100
+  return {
+    totalIncome,
+    totalExpenses,
+    profit: Math.round((totalIncome - totalExpenses) * 100) / 100,
+  }
+}
+
+export async function getPnlFromLedger({ from = null, to = null, preset = null, executor = { query } } = {}) {
   const presetName = String(preset || '').toLowerCase()
   const ranged = Boolean(from || to || presetName === 'month' || presetName === 'preview' || presetName === 'trading')
   if (!ranged) {
-    const accounts = await getAccountBalances()
+    const accounts = await getAccountBalances(executor)
     const income = accounts
       .filter((a) => a.statement === 'pnl' && a.normalBalance === 'credit')
       .map((a) => [a.name, a.balance])
     const expenses = accounts
       .filter((a) => a.statement === 'pnl' && a.normalBalance === 'debit')
       .map((a) => [a.name, a.balance])
-    const totalIncome = income.reduce((s, [, v]) => s + v, 0)
-    const totalExpenses = expenses.reduce((s, [, v]) => s + v, 0)
+    await addUnpostedIeBills(income, expenses, executor, null, null, false)
     return {
       title: 'P&L Report',
       preset: 'final',
       income,
       expenses,
-      totalIncome,
-      totalExpenses,
-      profit: Number((totalIncome - totalExpenses).toFixed(2)),
+      ...pnlTotals(income, expenses),
     }
   }
 
@@ -350,8 +392,7 @@ export async function getPnlFromLedger({ from = null, to = null, preset = null }
     if (row.normal_balance === 'credit') income.push([row.name, balance])
     else expenses.push([row.name, balance])
   }
-  const totalIncome = income.reduce((s, [, v]) => s + v, 0)
-  const totalExpenses = expenses.reduce((s, [, v]) => s + v, 0)
+  await addUnpostedIeBills(income, expenses, executor, rangeFrom, rangeTo, trading)
   const titles = {
     month: 'Monthly P&L',
     trading: 'Trading Account',
@@ -364,9 +405,7 @@ export async function getPnlFromLedger({ from = null, to = null, preset = null }
     to: rangeTo,
     income,
     expenses,
-    totalIncome,
-    totalExpenses,
-    profit: Number((totalIncome - totalExpenses).toFixed(2)),
+    ...pnlTotals(income, expenses),
   }
 }
 

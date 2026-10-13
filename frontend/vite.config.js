@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-export default defineConfig(({ mode }) => ({
+export default defineConfig(() => ({
   plugins: [react()],
-  base: mode === 'production' ? '/ifinancebook/' : '/',
+  base: process.env.VITE_BASE_PATH || '/',
   server: {
     host: '127.0.0.1',
     port: 5173,

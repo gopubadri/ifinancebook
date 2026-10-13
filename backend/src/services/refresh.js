@@ -1,16 +1,17 @@
 import { query } from '../db.js'
-import { getSettingsData, calcOdInterest } from '../utils/settings.js'
+import { getPnlFromLedger } from './ledger.js'
+import { getSettingsData, calcOdInterest, calendarDate } from '../utils/settings.js'
 
-/** Recompute dashboard_stats from the same live tables the dashboard folders use. */
+function roundMoney(value) {
+  return Math.round(Number(value || 0) * 100) / 100
+}
+
+/** Recompute dashboard_stats from the same live totals the tile pages show. */
 export async function refreshDashboardStats(executor = { query }) {
   const settings = await getSettingsData(executor).catch(() => ({}))
   const odRate = Number(settings.odInterest ?? 0.1)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = calendarDate()
 
-  const receipts = await executor.query(
-    `SELECT COALESCE(SUM(ta), 0) AS ta, COALESCE(SUM(total), 0) AS collected
-     FROM receipts`
-  )
   const bills = await executor.query(`
       SELECT
         COALESCE(SUM(CASE WHEN bill_type = 'Income' THEN amount ELSE 0 END), 0) AS income,
@@ -19,9 +20,29 @@ export async function refreshDashboardStats(executor = { query }) {
     `).catch(async () => ({
     rows: [{ income: 0, expenses: 0 }],
   }))
-  // Handloans folder lists handloan_accounts (customer HLs are mirrored there).
+  const ta = await executor.query(
+    `SELECT COALESCE(SUM(ta), 0) AS ta FROM receipts WHERE voided_at IS NULL`
+  ).catch(async () => executor.query(`SELECT COALESCE(SUM(ta), 0) AS ta FROM receipts`))
+
+  // Income and Expenses tiles open the P&L, so they use that statement's totals.
+  let income = roundMoney(Number(bills.rows[0].income || 0) + Number(ta.rows[0].ta || 0))
+  let expenses = roundMoney(bills.rows[0].expenses || 0)
+  try {
+    const pnl = await getPnlFromLedger({ executor })
+    income = roundMoney(pnl.totalIncome)
+    expenses = roundMoney(pnl.totalExpenses)
+  } catch {
+    // Ledger tables are optional on a partial database; bill totals stay as the fallback.
+  }
+
+  // Collection report (all dates) ignores voided receipts.
+  const receipts = await executor.query(
+    `SELECT COALESCE(SUM(total), 0) AS collected FROM receipts WHERE voided_at IS NULL`
+  ).catch(async () => executor.query(`SELECT COALESCE(SUM(total), 0) AS collected FROM receipts`))
+
+  // Handloans tile opens the type-1 book. Sum those balances, not type-2 loans.
   const hlOutstanding = await executor.query(
-    `SELECT COALESCE(SUM(balance), 0) AS hl FROM handloan_accounts`
+    `SELECT COALESCE(SUM(balance), 0) AS hl FROM handloan_accounts WHERE loan_type = '1'`
   ).catch(async () => ({ rows: [{ hl: 0 }] }))
   const overdue = await executor.query(
     `SELECT e.due_date, e.balance
@@ -34,16 +55,13 @@ export async function refreshDashboardStats(executor = { query }) {
   ).catch(async () => ({ rows: [] }))
   const closed = await executor.query(`SELECT COUNT(*)::int AS closed FROM customers WHERE closed = 'YES'`)
 
-  const emiCollection = Number(receipts.rows[0].collected || 0)
-  const taIncome = Number(receipts.rows[0].ta || 0)
-  const income = Number(bills.rows[0].income || 0) + taIncome
-  const expenses = Number(bills.rows[0].expenses || 0)
-  const hlCollection = Number(hlOutstanding.rows[0].hl || 0)
+  const emiCollection = roundMoney(receipts.rows[0].collected || 0)
+  const hlCollection = roundMoney(hlOutstanding.rows[0].hl || 0)
 
   let odCollection = 0
   for (const row of overdue.rows || []) {
     const balance = Number(row.balance || 0)
-    const dueDate = row.due_date ? String(row.due_date).slice(0, 10) : today
+    const dueDate = row.due_date || today
     const od = calcOdInterest(balance, dueDate, odRate)
     odCollection += balance + od.interest
   }

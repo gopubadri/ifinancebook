@@ -33,6 +33,8 @@ jobs:
 
       - name: Install & build
         working-directory: frontend
+        env:
+          VITE_BASE_PATH: /ifinancebook/
         run: |
           npm ci
           npm run build

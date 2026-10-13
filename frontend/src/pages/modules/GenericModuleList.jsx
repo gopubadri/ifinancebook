@@ -208,6 +208,9 @@ export default function GenericModuleList() {
       <div className="page-header">
         <h1>
           {mod.title} <span className="count">({mod.total ?? mod.rows.length})</span>
+          {mod.balanceTotal != null && (
+            <span className="count"> · Outstanding {inr(mod.balanceTotal)}</span>
+          )}
           {mod.phase2 && <span className="stamp paid" style={{ marginLeft: 10, fontSize: 11 }}>Phase 2</span>}
         </h1>
         <div style={{ display: 'flex', gap: 8 }}>

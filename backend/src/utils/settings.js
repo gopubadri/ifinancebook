@@ -5,6 +5,15 @@ export async function getSettingsData(executor = { query }) {
   return rows[0]?.data || {}
 }
 
+export function calendarDate(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 export function daysBetween(fromDate, toDate = new Date()) {
   const a = new Date(fromDate)
   const b = new Date(toDate)

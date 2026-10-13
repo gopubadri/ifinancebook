@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
+    "start:prod": "node scripts/migrate.js && node src/index.js",
+    "db:migrate": "node scripts/migrate.js",
     "db:setup": "node scripts/setupDb.js",
     "db:seed": "node scripts/seed.js",
     "db:phase2": "node scripts/setupPhase2.js",

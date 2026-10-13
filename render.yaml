@@ -1,0 +1,37 @@
+# Render blueprint: Express API + static React app.
+# Database is Neon. Set DATABASE_URL on ifinance-api when Render asks.
+
+services:
+  - type: web
+    name: ifinance-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm run start:prod
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+
+  - type: web
+    name: ifinance-web
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: ifinance-api
+          envVarKey: RENDER_EXTERNAL_URL
