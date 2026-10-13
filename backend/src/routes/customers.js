@@ -108,6 +108,12 @@ router.post('/', async (req, res) => {
 
     // Also register under RTA module for interconnection
     await client.query(
+      `INSERT INTO generic_modules (module_key, title, columns)
+       VALUES ('rta', 'RTA', $1::jsonb)
+       ON CONFLICT (module_key) DO NOTHING`,
+      [JSON.stringify(['customer', 'hpNo', 'agent', 'bikeBrand'])]
+    )
+    await client.query(
       `INSERT INTO generic_module_rows (module_key, row_data) VALUES ('rta', $1::jsonb)`,
       [JSON.stringify({
         customer: name,
@@ -122,7 +128,8 @@ router.post('/', async (req, res) => {
     res.status(201).json(mapCustomer(inserted.rows[0]))
   } catch (err) {
     await client.query('ROLLBACK')
-    throw err
+    console.error(err)
+    return res.status(500).json({ error: 'Could not create finance.' })
   } finally {
     client.release()
   }

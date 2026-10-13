@@ -24,7 +24,7 @@ async function request(path, options = {}) {
   try {
     res = await fetch(API_BASE + path, { ...options, headers })
   } catch {
-    throw new Error('API not running. Start backend: npm run dev:backend')
+    throw new Error('Could not reach the server. Wait a few seconds and try again.')
   }
 
   if (res.status === 204) return null
@@ -40,7 +40,7 @@ async function request(path, options = {}) {
   }
 
   if (res.status === 502 || res.status === 503 || res.status === 504) {
-    throw new Error('API not running. Start backend: npm run dev:backend')
+    throw new Error('The server is restarting. Wait a few seconds and try again.')
   }
   if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`)
   return data
