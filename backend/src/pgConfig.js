@@ -7,6 +7,7 @@ export function pgConfig(connectionString = process.env.DATABASE_URL) {
   const url = new URL(connectionString)
   const local = url.hostname === 'localhost' || url.hostname === '127.0.0.1'
   url.searchParams.delete('sslmode')
+  url.searchParams.delete('channel_binding')
 
   return {
     connectionString: url.toString(),
